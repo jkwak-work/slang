@@ -132,6 +132,7 @@ struct SPIRVLegalizationContext : public SourceEmitterBase
             break;
         default:
             nameSb << "StructuredBuffer";
+            builder.addMemoryQualifierSetDecoration(structType, MemoryQualifierSetModifier::Flags::kReadOnly);
             break;
         }
         builder.addNameHintDecoration(structType, nameSb.getUnownedSlice());
