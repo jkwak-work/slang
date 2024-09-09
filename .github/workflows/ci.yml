@@ -15,66 +15,31 @@ on:
       - 'LICENCE'
       - 'CONTRIBUTION.md'
       - 'README.md'
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
+  load_matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix_build: ${{ steps.set-matrix.outputs.matrix_build }}
+      matrix_test: ${{ steps.set-matrix.outputs.matrix_test }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - id: set-matrix
+        shell: bash
+        run: |
+          echo "matrix_build=$(cat .github/workflows/matrix_build.json | jq -c .)" >> $GITHUB_OUTPUT
+          echo "matrix_test=$(cat .github/workflows/matrix_test.json | jq -c .)" >> $GITHUB_OUTPUT
+
   build:
+    needs: load_matrix
     strategy:
-      matrix:
-        os: [linux, macos, windows]
-        config: [debug, release]
-        compiler: [gcc, clang, cl]
-        platform: [x86_64, aarch64]
-        exclude:
-          # Default to x64, but aarch64 on osx
-          - { os: linux, platform: aarch64 }
-          - { os: windows, platform: aarch64 }
-          - { os: macos, platform: x86_64 }
-          # Unused compiler configs
-          - { os: linux, compiler: clang }
-          - { os: linux, compiler: cl }
-          - { os: windows, compiler: gcc }
-          - { os: windows, compiler: clang }
-          - { os: macos, compiler: gcc }
-          - { os: macos, compiler: cl }
-        include:
-          - { os: linux, runs-on: ubuntu-20.04 }
-          - { os: macos, runs-on: macos-latest }
-          - { os: windows, runs-on: windows-latest }
-          # Warnings are treated as errors by default.
-          # But we may want to disable it temporarily.
-          - { os: linux, warnings-as-errors: true }
-          - { os: macos, warnings-as-errors: true }
-          - { os: windows, warnings-as-errors: true }
-          # Set a test category depending on the config, smoke by default,
-          # quick or full conditionally otherwise
-          - test-category: smoke
-          - { os: windows, test-category: quick }
-          - { config: release, test-category: full }
-          # default not full gpu tests
-          - full-gpu-tests: false
-          # The runners don't have a GPU by default except for the self-hosted ones
-          - has-gpu: false
-          # Self-hosted aarch64 build
-          - os: linux
-            config: release
-            compiler: gcc
-            platform: aarch64
-            test-category: smoke
-            full-gpu-tests: false
-            runs-on: [self-hosted, Linux, ARM64]
-            has-gpu: true
-          # Self-hosted full gpu build
-          - os: windows
-            config: release
-            compiler: cl
-            platform: x86_64
-            test-category: full
-            full-gpu-tests: true
-            runs-on: [Windows, self-hosted]
-            has-gpu: true
       fail-fast: false
+      matrix: ${{ fromJson(needs.load_matrix.outputs.matrix_build) }}
     runs-on: ${{ matrix.runs-on }}
 
     defaults:
@@ -82,18 +47,19 @@ jobs:
         shell: bash
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
           fetch-depth: '0'
-      - name: Setup
-        uses: ./.github/actions/common-setup
+
+      - uses: ./.github/actions/common-setup
         with:
           os: ${{matrix.os}}
           compiler: ${{matrix.compiler}}
           platform: ${{matrix.platform}}
           config: ${{matrix.config}}
           build-llvm: true
+
       - name: Build Slang
         run: |
           if [[ "${{ matrix.os }}" =~ "windows" && "${{ matrix.config }}" != "release" ]]; then
@@ -115,8 +81,71 @@ jobs:
               -DCMAKE_COMPILE_WARNING_AS_ERROR=${{matrix.warnings-as-errors}}
             cmake --workflow --preset "${{matrix.config}}"
           fi
+
+      - name: Set capitalized config
+        run: echo "CONFIG_CAMEL=$(echo ${{ matrix.config }} | sed 's/debug/Debug/;s/release/Release/')" >> $GITHUB_ENV
+
+      - name: Upload Slang
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-${{matrix.os}}-${{matrix.platform}}-${{matrix.compiler}}-${{matrix.config}}
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            build/${{ env.CONFIG_CAMEL }}
+            !**/*.pdb
+            !**/*.ilk
+            !**/*.lib
+            !**/*.exp
+            !**/*.a
+
+      - name: Upload slang-LLVM
+        uses: actions/upload-artifact@v4
+        if: ${{ ! matrix.full-gpu-tests }}
+        with:
+          name: slang-build-${{matrix.os}}-${{matrix.platform}}-${{matrix.compiler}}-${{matrix.config}}
+          # The install directory used in the packaging step
+          path: build/dist-${{matrix.config}}/**/ZIP/slang/*
+
+  test:
+    needs: [load_matrix, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.load_matrix.outputs.matrix_test) }}
+    runs-on: ${{ matrix.runs-on }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: '0'
+
+      - uses: ./.github/actions/common-setup
+        with:
+          os: ${{matrix.os}}
+          compiler: ${{matrix.compiler}}
+          platform: ${{matrix.platform}}
+          config: ${{matrix.config}}
+
+      - name: Set capitalized config
+        run: echo "CONFIG_CAMEL=$(echo ${{ matrix.config }} | sed 's/debug/Debug/;s/release/Release/')" >> $GITHUB_ENV
+
+      - name: Download artifacts from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: test-${{matrix.os}}-${{matrix.platform}}-${{matrix.compiler}}-${{matrix.config}}
+          path: build/${{ env.CONFIG_CAMEL }}
+
+      - name: "[Debug] list files"
+        run: ls -R build
+      
       - name: Test Slang
         run: |
+          chmod a+x "$bin_dir/"*
           export SLANG_RUN_SPIRV_VALIDATION=1
           export SLANG_USE_SPV_SOURCE_LANGUAGE_UNKNOWN=1
           if [[ "${{matrix.full-gpu-tests}}" == "true" ]]; then
@@ -139,21 +168,17 @@ jobs:
               -expected-failure-list tests/expected-failure-github.txt \
               -expected-failure-list tests/expected-failure-record-replay-tests.txt
           fi
-      - name: Test Slang via glsl
+
+      - name: Test Slang via GLSL
         if: ${{matrix.full-gpu-tests}}
         run: |
           export SLANG_RUN_SPIRV_VALIDATION=1
           export SLANG_USE_SPV_SOURCE_LANGUAGE_UNKNOWN=1
-          "$bin_dir/slang-test" \
-            -use-test-server \
-            -server-count 8 \
-            -category ${{ matrix.test-category }} \
-            -emit-spirv-via-glsl \
-            -api vk \
-            -expected-failure-list tests/expected-failure.txt
-      - uses: actions/upload-artifact@v3
-        if: ${{ ! matrix.full-gpu-tests }}
-        with:
-          name: slang-build-${{matrix.os}}-${{matrix.platform}}-${{matrix.compiler}}-${{matrix.config}}
-          # The install directory used in the packaging step
-          path: build/dist-${{matrix.config}}/**/ZIP/slang/*
+            "$bin_dir/slang-test" \
+              -use-test-server \
+              -server-count 8 \
+              -category ${{ matrix.test-category }} \
+              -emit-spirv-via-glsl \
+              -api vk \
+              -expected-failure-list tests/expected-failure.txt
+
