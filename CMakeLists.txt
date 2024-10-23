@@ -86,8 +86,8 @@ auto_option(
 advanced_option(SLANG_ENABLE_DX_ON_VK "Use dxvk and vkd3d-proton for DirectX support" OFF)
 advanced_option(SLANG_ENABLE_SLANG_RHI "Use slang-rhi as dependency" ON)
 
-option(SLANG_EMBED_STDLIB_SOURCE "Embed stdlib source in the binary" ON)
-option(SLANG_EMBED_STDLIB "Build slang with an embedded version of the stdlib")
+option(SLANG_EMBED_CORE_MODULE_SOURCE "Embed core module source in the binary" ON)
+option(SLANG_EMBED_CORE_MODULE "Build slang with an embedded version of the core module")
 
 option(SLANG_ENABLE_FULL_IR_VALIDATION "Enable full IR validation (SLOW!)")
 option(SLANG_ENABLE_IR_BREAK_ALLOC, "Enable _debugUID on IR allocation")
@@ -201,10 +201,10 @@ endif()
 # Option validation
 #
 
-if(NOT SLANG_EMBED_STDLIB AND NOT SLANG_EMBED_STDLIB_SOURCE)
+if(NOT SLANG_EMBED_CORE_MODULE AND NOT SLANG_EMBED_CORE_MODULE_SOURCE)
     message(
         SEND_ERROR
-        "One of SLANG_EMBED_STDLIB and SLANG_EMBED_STDLIB_SOURCE must be enabled"
+	"One of SLANG_EMBED_CORE_MODULE and SLANG_EMBED_CORE_MODULE_SOURCE must be enabled"
     )
 endif()
 
@@ -360,11 +360,11 @@ generator(
     source/slangc
     TARGET_NAME slang-bootstrap
     USE_FEWER_WARNINGS
-    LINK_WITH_PRIVATE 
-        prelude 
-        slang-without-embedded-stdlib 
-        slang-capability-lookup 
-        slang-lookup-tables 
+    LINK_WITH_PRIVATE
+        prelude
+        slang-without-embedded-core-module
+        slang-capability-lookup
+        slang-lookup-tables
         Threads::Threads
 )
 
@@ -375,7 +375,7 @@ generator(
 # keep these non-trivial targets in their own directories so as not to clutter
 # this file
 add_subdirectory(prelude)
-add_subdirectory(source/slang-stdlib)
+add_subdirectory(source/slang-core-module)
 add_subdirectory(source/slang)
 
 if(SLANG_ENABLE_SLANGD)
@@ -507,7 +507,7 @@ if(SLANG_ENABLE_PREBUILT_BINARIES)
         add_custom_target(
             copy-prebuilt-binaries ALL
             COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/$<CONFIG>/${runtime_subdir}
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${prebuilt_binaries}
                 ${CMAKE_BINARY_DIR}/$<CONFIG>/${runtime_subdir}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/$<CONFIG>/${runtime_subdir}/D3D12

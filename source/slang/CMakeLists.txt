@@ -181,7 +181,7 @@ set(slang_build_args
         $<$<CXX_COMPILER_ID:GNU>:-Wno-error=stringop-overflow>
     INCLUDE_DIRECTORIES_PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/slang-version-header
     EXPORT_MACRO_PREFIX SLANG
-    EXPORT_TYPE_AS ${SLANG_LIB_TYPE} 
+    EXPORT_TYPE_AS ${SLANG_LIB_TYPE}
     EXTRA_SOURCE_DIRS ${SLANG_RECORD_REPLAY_SYSTEM}
 )
 set(slang_link_args
@@ -199,28 +199,28 @@ set(slang_interface_args
     # slang.h is in the project root, so include that directory in the interface
     # for slang
     INCLUDE_DIRECTORIES_PUBLIC ${slang_SOURCE_DIR}
-) 
+)
 set(slang_public_lib_args
-    PUBLIC_HEADERS 
-        ${slang_SOURCE_DIR}/include/slang*.h 
+    PUBLIC_HEADERS
+        ${slang_SOURCE_DIR}/include/slang*.h
         ${CMAKE_CURRENT_BINARY_DIR}/slang-version-header/*.h
     LINK_WITH_PRIVATE
-        $<IF:$<BOOL:${SLANG_EMBED_STDLIB}>,slang-embedded-stdlib,slang-no-embedded-stdlib>
-        $<IF:$<BOOL:${SLANG_EMBED_STDLIB_SOURCE}>,slang-embedded-stdlib-source,slang-no-embedded-stdlib-source>
+        $<IF:$<BOOL:${SLANG_EMBED_CORE_MODULE}>,slang-embedded-core-module,slang-no-embedded-core-module>
+        $<IF:$<BOOL:${SLANG_EMBED_CORE_MODULE_SOURCE}>,slang-embedded-core-module-source,slang-no-embedded-core-module-source>
     INSTALL
 )
 
 #
-# Minimal static slang used in generating the embedded stdlib
+# Minimal static slang used in generating the embedded core module
 #
 
 #
 # Slang itself
 #
 
-if(NOT SLANG_EMBED_STDLIB)
-    # If we're not embedding stdlib we can just do a normal build of slang,
-    # including all the options, this can also serve as our no embedded stdlib
+if(NOT SLANG_EMBED_CORE_MODULE)
+    # If we're not embedding core module we can just do a normal build of slang,
+    # including all the options, this can also serve as our no embedded core module
     # library for slang-bootstrap (not that we need that anyway)
     slang_add_target(
         .
@@ -231,10 +231,10 @@ if(NOT SLANG_EMBED_STDLIB)
         ${slang_public_lib_args}
         INSTALL_COMPONENT generators
     )
-    add_library(slang-without-embedded-stdlib ALIAS slang) 
+    add_library(slang-without-embedded-core-module ALIAS slang)
 else()
-    # However if we're embedding stdlib, we need to make two different
-    # libraries, one with the embedded stdlib and one without, so first define
+    # However if we're embedding core module, we need to make two different
+    # libraries, one with the embedded core module and one without, so first define
     # the shared objects as one target so we don't build them twice.
     slang_add_target(
         .
@@ -250,13 +250,13 @@ else()
         ${slang_link_args}
         ${slang_interface_args}
         NO_SOURCE
-        TARGET_NAME 
-            slang-without-embedded-stdlib
+        TARGET_NAME
+            slang-without-embedded-core-module
         EXCLUDE_FROM_ALL
-        LINK_WITH_PRIVATE 
+        LINK_WITH_PRIVATE
             slang-common-objects
-            slang-no-embedded-stdlib 
-            slang-embedded-stdlib-source
+            slang-no-embedded-core-module
+            slang-embedded-core-module-source
         OUTPUT_DIR generators
         FOLDER generators
         INSTALL_COMPONENT generators
@@ -267,7 +267,7 @@ else()
         ${slang_link_args}
         ${slang_interface_args}
         ${slang_public_lib_args}
-        LINK_WITH_PRIVATE 
+        LINK_WITH_PRIVATE
             slang-common-objects
         NO_SOURCE
     )
