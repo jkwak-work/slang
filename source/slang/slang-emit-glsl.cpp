@@ -1407,7 +1407,8 @@ void GLSLSourceEmitter::emitEntryPointAttributesImpl(
     {
         Int sizeAlongAxis[kThreadGroupAxisCount];
         Int specializationConstantIds[kThreadGroupAxisCount];
-        numThreadsDecor = getComputeThreadGroupSize(irFunc, sizeAlongAxis, specializationConstantIds);
+        numThreadsDecor =
+            getComputeThreadGroupSize(irFunc, sizeAlongAxis, specializationConstantIds);
 
         m_writer->emit("layout(");
         char const* axes[] = {"x", "y", "z"};
