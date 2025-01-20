@@ -1664,6 +1664,18 @@ struct matrix : IRWArray<vector<T,C>>
     int getCount() { return R; }
 }
 
+__generic<T:__BuiltinArithmeticType, let N:int>
+__magic_type(CoopVectorExpressionType)
+__intrinsic_type($(kIROp_CoopVectorType))
+struct CoopVector : IArray<T>
+{
+    /// The element type of the CoopVector
+    typedef T Element;
+
+    [ForceInline]
+    int getCount() { return N; }
+}
+
 //@hidden:
 __intrinsic_op($(kIROp_Eql))
 vector<bool, N> __vectorEql<T, let N : int>(vector<T, N> left, vector<T, N> right);
@@ -3232,6 +3244,18 @@ int __alignOf_intrinsic_impl<T>(T t);
 int __alignOf_intrinsic<T>()
 {
     return __alignOf_intrinsic_impl<T>(__default<T>());
+}
+
+[__unsafeForceInlineEarly]
+int32_t __elemToByteOffset<T>(int32_t elemOffset)
+{
+    return elemOffset * __naturalStrideOf<T>();
+}
+
+[__unsafeForceInlineEarly]
+int32_t __byteToElemOffset<T>(int32_t byteOffset)
+{
+    return byteOffset / __naturalStrideOf<T>();
 }
 
 __intrinsic_op($(kIROp_TreatAsDynamicUniform))

@@ -11,6 +11,7 @@
 #include "shader-input-layout.h"
 #include "shader-renderer-util.h"
 #include "slang-support.h"
+
 #include "window.h"
 
 #include <slang-rhi.h>
