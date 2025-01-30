@@ -1,6 +1,7 @@
 #pragma once
 
-namespace Slang {
+namespace Slang
+{
 
 struct IRModule;
 class DiagnosticSink;

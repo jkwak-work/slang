@@ -2,7 +2,6 @@
 #pragma once
 
 #include "core/slang-basic.h"
-
 #include "vk-module.h"
 
 namespace gfx

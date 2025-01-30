@@ -3740,9 +3740,7 @@ public:
 
     IRVectorType* getVectorType(IRType* elementType, IRIntegerValue elementCount);
 
-    IRCoopVectorType* getCoopVectorType(
-        IRType* elementType,
-        IRInst* elementCount);
+    IRCoopVectorType* getCoopVectorType(IRType* elementType, IRInst* elementCount);
 
     IRMatrixType* getMatrixType(
         IRType* elementType,

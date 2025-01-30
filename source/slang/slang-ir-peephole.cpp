@@ -356,18 +356,23 @@ struct PeepholeContext : InstPassBase
         case kIROp_MakeCoopVectorFromValuePack:
             {
                 const auto pack = inst->getOperand(0);
-                if(const auto packType = as<IRTypePack>(pack->getDataType()))
+                if (const auto packType = as<IRTypePack>(pack->getDataType()))
                 {
                     IRBuilder builder(inst);
                     builder.setInsertBefore(inst);
                     List<IRInst*> args;
-                    for(UInt j = 0; j < packType->getOperandCount(); ++j)
+                    for (UInt j = 0; j < packType->getOperandCount(); ++j)
                     {
-                        const auto e = builder.emitGetTupleElement(cast<IRType>(packType->getOperand(j)), pack, j);
+                        const auto e = builder.emitGetTupleElement(
+                            cast<IRType>(packType->getOperand(j)),
+                            pack,
+                            j);
                         args.add(e);
                     }
-                    const auto cvt = builder.getCoopVectorType(args[0]->getDataType(), builder.getIntValue( builder.getIntType(), args.getCount()));
-                    const auto v = builder.emitMakeCoopVector(cvt,  args.getCount(), args.begin());
+                    const auto cvt = builder.getCoopVectorType(
+                        args[0]->getDataType(),
+                        builder.getIntValue(builder.getIntType(), args.getCount()));
+                    const auto v = builder.emitMakeCoopVector(cvt, args.getCount(), args.begin());
                     inst->replaceUsesWith(v);
                     inst->removeAndDeallocate();
                 }
@@ -1111,8 +1116,11 @@ struct PeepholeContext : InstPassBase
                         break;
                     auto type = inst->getOperand(0)->getDataType();
                     IRSizeAndAlignment sizeAlignment;
-                    const auto res = getNaturalSizeAndAlignment(targetProgram->getOptionSet(), type, &sizeAlignment);
-                    if(!SLANG_SUCCEEDED(res))
+                    const auto res = getNaturalSizeAndAlignment(
+                        targetProgram->getOptionSet(),
+                        type,
+                        &sizeAlignment);
+                    if (!SLANG_SUCCEEDED(res))
                         break;
                     IRBuilder builder(module);
                     builder.setInsertBefore(inst);

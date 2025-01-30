@@ -369,7 +369,8 @@ IntVal* CoopVectorExpressionType::getElementCount()
 
 void CoopVectorExpressionType::_toTextOverride(StringBuilder& out)
 {
-    out << toSlice("CoopVector<") << getElementType() << toSlice(",") << getElementCount() << toSlice(">");
+    out << toSlice("CoopVector<") << getElementType() << toSlice(",") << getElementCount()
+        << toSlice(">");
 }
 
 BasicExpressionType* CoopVectorExpressionType::_getScalarTypeOverride()

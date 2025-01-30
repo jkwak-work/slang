@@ -1,8 +1,10 @@
 #include "slang-ir-lower-coopvec.h"
-#include "slang-ir.h"
-#include "slang-ir-insts.h"
 
-namespace Slang {
+#include "slang-ir-insts.h"
+#include "slang-ir.h"
+
+namespace Slang
+{
 struct CoopVecLoweringContext
 {
     IRModule* module;
@@ -12,9 +14,7 @@ struct CoopVecLoweringContext
     InstHashSet workListSet;
 
     CoopVecLoweringContext(IRModule* inModule)
-        : module(inModule)
-        , workList(inModule)
-        , workListSet(inModule)
+        : module(inModule), workList(inModule), workListSet(inModule)
     {
     }
 
@@ -85,7 +85,8 @@ struct CoopVecLoweringContext
         UIndex i = 0;
         for (auto operand = inst->getOperands(); i < inst->getOperandCount(); operand++, i++)
             operands[Index(i)] = operand->get();
-        auto makeArray = builder->emitMakeArray(info->arrayType, operands.getCount(), operands.begin());
+        auto makeArray =
+            builder->emitMakeArray(info->arrayType, operands.getCount(), operands.begin());
         inst->replaceUsesWith(makeArray);
         inst->removeAndDeallocate();
     }
@@ -118,7 +119,8 @@ struct CoopVecLoweringContext
         IRIntegerValue width = 0;
         IRType* resultElementType = nullptr;
         UIndex opIndex = 0;
-        for (auto operand = inst->getOperands(); opIndex < inst->getOperandCount(); operand++, opIndex++)
+        for (auto operand = inst->getOperands(); opIndex < inst->getOperandCount();
+             operand++, opIndex++)
         {
             operands.add(operand->get());
             if (const auto cv = as<IRCoopVectorType>(operand->get()->getDataType()))
@@ -154,8 +156,7 @@ struct CoopVecLoweringContext
                 resultElementType,
                 inst->getOp(),
                 entrywiseOperands.getCount(),
-                entrywiseOperands.begin()
-            );
+                entrywiseOperands.begin());
             const auto d = builder.emitGetElementPtr(resultElementPtrType, result, i);
             builder.emitStore(d, x);
         }
