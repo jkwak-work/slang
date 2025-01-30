@@ -1415,7 +1415,8 @@ DIAGNOSTIC(
     Error,
     cannotUseInitializerListForType,
     "cannot use initializer list for type '$0'")
-DIAGNOSTIC(30505,
+DIAGNOSTIC(
+    30505,
     Error,
     cannotUseInitializerListForCoopVectorOfUnknownSize,
     "cannot use initializer list for CoopVector of statically unknown size '$0'")

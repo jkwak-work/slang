@@ -1017,7 +1017,7 @@ Result linkAndOptimizeIR(
 #endif
     validateIRModuleIfEnabled(codeGenContext, irModule);
 
-    switch(target)
+    switch (target)
     {
     case CodeGenTarget::SPIRV:
     case CodeGenTarget::SPIRVAssembly:
@@ -1496,8 +1496,8 @@ Result linkAndOptimizeIR(
     case CodeGenTarget::SPIRV:
     case CodeGenTarget::SPIRVAssembly:
         moveGlobalVarInitializationToEntryPoints(irModule, targetProgram);
-        if(targetProgram->getOptionSet().getBoolOption(
-               CompilerOptionName::EnableExperimentalPasses))
+        if (targetProgram->getOptionSet().getBoolOption(
+                CompilerOptionName::EnableExperimentalPasses))
             introduceExplicitGlobalContext(irModule, target);
 #if 0
         dumpIRIfEnabled(codeGenContext, irModule, "EXPLICIT GLOBAL CONTEXT INTRODUCED");

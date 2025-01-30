@@ -131,7 +131,7 @@ struct MoveGlobalVarInitializationToEntryPointsPass
             auto valueType = globalVar->getDataType()->getValueType();
             if (as<IRCoopVectorType>(valueType))
                 return true;
-	    return false;
+            return false;
         }
         return true;
     }
@@ -242,10 +242,7 @@ struct MoveGlobalVarInitializationToEntryPointsPass
 };
 
 /// Move initialization logic off of global variables and onto each entry point
-void moveGlobalVarInitializationToEntryPoints(
-    IRModule* module,
-    TargetProgram* targetProgram
-)
+void moveGlobalVarInitializationToEntryPoints(IRModule* module, TargetProgram* targetProgram)
 {
     MoveGlobalVarInitializationToEntryPointsPass pass;
     pass.processModule(module, targetProgram);

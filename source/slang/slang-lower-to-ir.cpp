@@ -4864,7 +4864,8 @@ struct ExprLoweringVisitorBase : public ExprVisitor<Derived, LoweredValInfo>
             }
             if (elementCount > argCount)
             {
-                auto irDefaultValue = getSimpleVal(context, getDefaultVal(coopVecType->getElementType()));
+                auto irDefaultValue =
+                    getSimpleVal(context, getDefaultVal(coopVecType->getElementType()));
                 for (UInt ee = argCount; ee < elementCount; ++ee)
                 {
                     args.add(irDefaultValue);

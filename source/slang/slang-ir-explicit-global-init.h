@@ -7,7 +7,5 @@ struct IRModule;
 class TargetProgram;
 
 /// Move initialization logic off of global variables and onto each entry point
-void moveGlobalVarInitializationToEntryPoints(
-    IRModule* module,
-    TargetProgram* targetProgram);
-}
+void moveGlobalVarInitializationToEntryPoints(IRModule* module, TargetProgram* targetProgram);
+} // namespace Slang

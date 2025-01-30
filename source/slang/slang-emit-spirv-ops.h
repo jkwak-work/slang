@@ -139,11 +139,7 @@ SpvInst* emitOpTypeVector(
 }
 
 template<typename T1, typename T2>
-SpvInst* emitOpTypeCoopVec(
-    IRInst* inst,
-    const T1& componentType,
-    const T2& componentCount
-)
+SpvInst* emitOpTypeCoopVec(IRInst* inst, const T1& componentType, const T2& componentCount)
 {
     static_assert(isSingular<T1>);
     return emitInstMemoized(
@@ -152,8 +148,7 @@ SpvInst* emitOpTypeCoopVec(
         SpvOpTypeCooperativeVectorNV,
         kResultID,
         componentType,
-        componentCount
-    );
+        componentCount);
 }
 
 // https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#OpTypeMatrix

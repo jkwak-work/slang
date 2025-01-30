@@ -1629,15 +1629,15 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                     vectorType);
             }
         case kIROp_CoopVectorType:
-        {
-            auto coopVecType = static_cast<IRCoopVectorType*>(inst);
-            requireSPIRVCapability(SpvCapabilityCooperativeVectorNV);
-            ensureExtensionDeclaration(UnownedStringSlice("SPV_NV_cooperative_vector" ));
-            return ensureCoopVecType(
-                static_cast<IRBasicType*>(coopVecType->getElementType())->getBaseType(),
-                static_cast<IRIntLit*>(coopVecType->getElementCount())->getValue(),
-                coopVecType);
-        }
+            {
+                auto coopVecType = static_cast<IRCoopVectorType*>(inst);
+                requireSPIRVCapability(SpvCapabilityCooperativeVectorNV);
+                ensureExtensionDeclaration(UnownedStringSlice("SPV_NV_cooperative_vector"));
+                return ensureCoopVecType(
+                    static_cast<IRBasicType*>(coopVecType->getElementType())->getBaseType(),
+                    static_cast<IRIntLit*>(coopVecType->getElementCount())->getValue(),
+                    coopVecType);
+            }
         case kIROp_MatrixType:
             {
                 auto matrixType = static_cast<IRMatrixType*>(inst);
@@ -2373,7 +2373,10 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
     }
 
     /// Similar to ensureVectorType but for CoopVecType
-    SpvInst* ensureCoopVecType(BaseType baseType, IRIntegerValue elementCount, IRCoopVectorType* inst)
+    SpvInst* ensureCoopVecType(
+        BaseType baseType,
+        IRIntegerValue elementCount,
+        IRCoopVectorType* inst)
     {
         IRBuilder builder(m_irModule);
         if (!inst)
@@ -2386,8 +2389,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         auto result = emitOpTypeCoopVec(
             inst,
             inst->getElementType(),
-            emitIntConstant(elementCount, builder.getIntType())
-        );
+            emitIntConstant(elementCount, builder.getIntType()));
         return result;
     }
 
@@ -3449,7 +3451,8 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
             break;
         case kIROp_GetStructuredBufferPtr:
         case kIROp_GetUntypedBufferPtr:
-            result = emitGetBufferPtr(parent, inst); break;
+            result = emitGetBufferPtr(parent, inst);
+            break;
         case kIROp_swizzle:
             result = emitSwizzle(parent, as<IRSwizzle>(inst));
             break;
@@ -6346,21 +6349,22 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
     SpvInst* emitGetBufferPtr(SpvInstParent* parent, IRInst* inst)
     {
         IRBuilder builder(inst);
-        auto addressSpace = isSpirv14OrLater()? AddressSpace::StorageBuffer : AddressSpace::Uniform;
+        auto addressSpace =
+            isSpirv14OrLater() ? AddressSpace::StorageBuffer : AddressSpace::Uniform;
         // The buffer is a global parameter, so it's a pointer
         IRPtrTypeBase* bufPtrType = cast<IRPtrTypeBase>(inst->getOperand(0)->getDataType());
         // It's lowered to a struct type..
         IRStructType* bufType = cast<IRStructType>(bufPtrType->getValueType());
         // containing an unsized array, specifically one with an explicit
         // stride, which is not expressible in spirv_asm blocks
-        IRArrayTypeBase* arrayType = cast<IRArrayTypeBase>(bufType->getFields().getFirst()->getFieldType());
+        IRArrayTypeBase* arrayType =
+            cast<IRArrayTypeBase>(bufType->getFields().getFirst()->getFieldType());
         return emitOpAccessChain(
             parent,
             inst,
             builder.getPtrType(arrayType, addressSpace),
             inst->getOperand(0),
-            makeArray(emitIntConstant(0, builder.getIntType()))
-        );
+            makeArray(emitIntConstant(0, builder.getIntType())));
     }
 
     SpvInst* emitSwizzle(SpvInstParent* parent, IRSwizzle* inst)

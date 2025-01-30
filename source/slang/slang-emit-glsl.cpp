@@ -3370,17 +3370,18 @@ void GLSLSourceEmitter::emitSimpleTypeImpl(IRType* type)
 
         return;
     }
-    else if(auto specializedType = as<IRSpecialize>(type))
+    else if (auto specializedType = as<IRSpecialize>(type))
     {
         // If a `specialize` instruction made it this far, then
         // it represents an intrinsic generic type.
         //
-        emitSimpleType((IRType*) getSpecializedValue(specializedType));
+        emitSimpleType((IRType*)getSpecializedValue(specializedType));
         m_writer->emit("<");
         UInt argCount = specializedType->getArgCount();
         for (UInt ii = 0; ii < argCount; ++ii)
         {
-            if (ii != 0) m_writer->emit(", ");
+            if (ii != 0)
+                m_writer->emit(", ");
             emitVal(specializedType->getArg(ii), getInfo(EmitOp::General));
         }
         m_writer->emit(" >");
