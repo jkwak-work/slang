@@ -1397,7 +1397,7 @@ static SlangResult _innerMain(
 
 #if defined(_WIN32)
         D3D12ExperimentalFeaturesDesc experimentalFD = {};
-        UUID features[1] = { D3D12ExperimentalShaderModels };
+        UUID features[1] = {D3D12ExperimentalShaderModels};
         experimentalFD.featureCount = 1;
         experimentalFD.featureIIDs = features;
         experimentalFD.configurationStructs = nullptr;
