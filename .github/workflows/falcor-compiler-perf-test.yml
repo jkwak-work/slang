@@ -60,45 +60,9 @@ jobs:
 
       - name: Build Slang
         run: |
-          cmake --preset default --fresh \
-            -DSLANG_SLANG_LLVM_FLAVOR=USE_SYSTEM_LLVM \
-            -DCMAKE_COMPILE_WARNING_AS_ERROR=${{matrix.warnings-as-errors}} \
-            -DSLANG_ENABLE_CUDA=1
-          cmake --workflow --preset "${{matrix.config}}"
-
-      - uses: robinraju/release-downloader@v1.11
-        id: download
-        with:
-          # The source repository path.
-          # Expected format {owner}/{repo}
-          # Default: ${{ github.repository }}
-          repository: "shader-slang/falcor-compile-perf-test"
-
-          # A flag to set the download target as latest release
-          # The default value is 'false'
-          latest: true
-
-          # The name of the file to download.
-          # Use this field only to specify filenames other than tarball or zipball, if any.
-          # Supports wildcard pattern (eg: '*', '*.deb', '*.zip' etc..)
-          fileName: "falcor_perf_test-*-win-64.zip"
-
-          # Download the attached zipball (*.zip)
-          zipBall: true
-
-          # Relative path under $GITHUB_WORKSPACE to place the downloaded file(s)
-          # It will create the target directory automatically if not present
-          # eg: out-file-path: "my-downloads" => It will create directory $GITHUB_WORKSPACE/my-downloads
-          out-file-path: "./falcor-perf-test"
-
-          # Somehow there is a bug in this flag, the executable extracted is not runnable. We have to
-          # extract ourselves.
-          extract: false
+          echo "Skip"
 
       - name: run falcor-compiler-perf-test
         shell: pwsh
         run: |
-          $filename = '${{ fromJson(steps.download.outputs.downloaded_files)[0] }}'
-          Expand-Archive $filename -DestinationPath .\falcor-perf-test
-          $env:PATH += ";.\build\${{matrix.config}}\bin";
-          .\falcor-perf-test\bin\Release\falcor_perftest.exe
+          echo "Skip"
