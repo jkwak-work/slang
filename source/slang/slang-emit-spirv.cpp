@@ -1542,8 +1542,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                 else if (storageClass == SpvStorageClassNodePayloadAMDX)
                 {
                     auto spvValueType = ensureInst(valueType);
-                    auto spvNodePayloadType = emitOpTypeNodePayloadArray(inst, spvValueType);
-                    valueTypeId = getID(spvNodePayloadType);
+                    valueTypeId = getID(spvValueType);
                 }
                 else
                 {
@@ -1909,6 +1908,24 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         case kIROp_IndicesType:
         case kIROp_PrimitivesType:
             return nullptr;
+        case kIROp_SPIRVNodePayloadArrayType:
+            if (auto nodePayloadArrayType = as<IRSPIRVNodePayloadArrayType>(inst))
+            {
+                auto newType = emitOpTypeNodePayloadArray(
+                    inst, nodePayloadArrayType->getRecordType());
+
+                Slang::StringBuilder str;
+                str << "NodeID_" << uint32_t(nodePayloadArrayType->getNodeID()->getValue());
+                SpvInst* spvStr = emitOpConstantString(nullptr, str.getUnownedSlice());
+                (void)spvStr;
+
+                auto r = emitOpDecoratePayloadNodeName(
+                    nullptr,
+                    newType,
+                    spvStr);
+                (void)r;
+                return newType;
+            }
         default:
             {
                 if (as<IRSPIRVAsmOperand>(inst))
@@ -7750,6 +7767,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                         return getSection(SpvLogicalSectionID::Annotations);
                     case SpvOpTypeNodePayloadArrayAMDX:
                         return getSection(SpvLogicalSectionID::ConstantsAndTypes);
+
                     default:
                         return defaultParent;
                     }
