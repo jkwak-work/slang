@@ -2950,8 +2950,6 @@ struct IRWitnessTable : IRInst
 
     IRType* getConcreteType() { return (IRType*)getOperand(0); }
 
-    void setConcreteType(IRType* t) { return setOperand(0, t); }
-
     IR_LEAF_ISA(WitnessTable)
 };
 
