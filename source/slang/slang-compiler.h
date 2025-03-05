@@ -1384,7 +1384,8 @@ enum class PassThroughMode : SlangPassThroughIntegral
     LLVM = SLANG_PASS_THROUGH_LLVM,                  ///< LLVM 'compiler'
     SpirvOpt = SLANG_PASS_THROUGH_SPIRV_OPT,         ///< pass thorugh spirv to spirv-opt
     MetalC = SLANG_PASS_THROUGH_METAL,
-    Tint = SLANG_PASS_THROUGH_TINT, ///< pass through spirv to Tint API
+    Tint = SLANG_PASS_THROUGH_TINT,            ///< pass through spirv to Tint API
+    SpirvLink = SLANG_PASS_THROUGH_SPIRV_LINK, ///< pass through spirv to spirv-link
     CountOf = SLANG_PASS_THROUGH_COUNT_OF,
 };
 void printDiagnosticArg(StringBuilder& sb, PassThroughMode val);
@@ -2886,6 +2887,12 @@ public:
     // removed between IR linking and target source generation.
     bool removeAvailableInDownstreamIR = false;
 
+    // Determines if program level compilation like getTargetCode() or getEntryPointCode()
+    // should return a fully linked downstream program or just the glue SPIR-V/DXIL that
+    // imports and uses the precompiled SPIR-V/DXIL from constituent modules.
+    // This is a no-op if modules are not precompiled.
+    bool shouldSkipDownstreamLinking();
+
 protected:
     CodeGenTarget m_targetFormat = CodeGenTarget::Unknown;
     ExtensionTracker* m_extensionTracker = nullptr;
@@ -3756,26 +3763,6 @@ SLANG_FORCE_INLINE SlangSourceLanguage asExternal(SourceLanguage sourceLanguage)
 {
     return (SlangSourceLanguage)sourceLanguage;
 }
-
-// Helper class for recording compile time.
-struct CompileTimerRAII
-{
-    std::chrono::high_resolution_clock::time_point startTime;
-    Session* session;
-    CompileTimerRAII(Session* inSession)
-    {
-        startTime = std::chrono::high_resolution_clock::now();
-        session = inSession;
-    }
-    ~CompileTimerRAII()
-    {
-        double elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(
-                                 std::chrono::high_resolution_clock::now() - startTime)
-                                 .count() /
-                             1e6;
-        session->addTotalCompileTime(elapsedTime);
-    }
-};
 
 // helpers for error/warning reporting
 enum class DiagnosticCategory
