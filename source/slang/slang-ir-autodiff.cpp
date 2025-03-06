@@ -1861,17 +1861,20 @@ IRInst* DifferentiableTypeConformanceContext::buildDifferentiablePairWitness(
             sharedContext->differentiableInterfaceType,
             (IRType*)pairType);
 
-        // And place it in the synthesized witness table.
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocTypeStructKey,
-            diffDiffPairType);
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocTypeWitnessStructKey,
-            table);
-        builder->createWitnessTableEntry(table, sharedContext->addMethodStructKey, addMethod);
-        builder->createWitnessTableEntry(table, sharedContext->zeroMethodStructKey, zeroMethod);
+        if (table->getFirstDecorationOrChild() == nullptr)
+        {
+            // And place it in the synthesized witness table.
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocTypeStructKey,
+                diffDiffPairType);
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocTypeWitnessStructKey,
+                table);
+            builder->createWitnessTableEntry(table, sharedContext->addMethodStructKey, addMethod);
+            builder->createWitnessTableEntry(table, sharedContext->zeroMethodStructKey, zeroMethod);
+        }
 
         bool isUserCodeType = as<IRDifferentialPairUserCodeType>(pairType) ? true : false;
 
@@ -1943,15 +1946,18 @@ IRInst* DifferentiableTypeConformanceContext::buildDifferentiablePairWitness(
             sharedContext->differentiablePtrInterfaceType,
             (IRType*)pairType);
 
-        // And place it in the synthesized witness table.
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocRefTypeStructKey,
-            diffDiffPairType);
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocRefTypeWitnessStructKey,
-            table);
+        if (table->getFirstDecorationOrChild() == nullptr)
+        {
+            // And place it in the synthesized witness table.
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocRefTypeStructKey,
+                diffDiffPairType);
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocRefTypeWitnessStructKey,
+                table);
+        }
     }
 
     return table;
@@ -1986,17 +1992,20 @@ IRInst* DifferentiableTypeConformanceContext::buildArrayWitness(
             sharedContext->differentiableInterfaceType,
             (IRType*)arrayType);
 
-        // And place it in the synthesized witness table.
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocTypeStructKey,
-            diffArrayType);
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocTypeWitnessStructKey,
-            table);
-        builder->createWitnessTableEntry(table, sharedContext->addMethodStructKey, addMethod);
-        builder->createWitnessTableEntry(table, sharedContext->zeroMethodStructKey, zeroMethod);
+        if (table->getFirstDecorationOrChild() == nullptr)
+        {
+            // And place it in the synthesized witness table.
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocTypeStructKey,
+                diffArrayType);
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocTypeWitnessStructKey,
+                table);
+            builder->createWitnessTableEntry(table, sharedContext->addMethodStructKey, addMethod);
+            builder->createWitnessTableEntry(table, sharedContext->zeroMethodStructKey, zeroMethod);
+        }
 
         auto elementType = as<IRArrayTypeBase>(diffArrayType)->getElementType();
 
@@ -2065,15 +2074,18 @@ IRInst* DifferentiableTypeConformanceContext::buildArrayWitness(
             sharedContext->differentiablePtrInterfaceType,
             (IRType*)arrayType);
 
-        // And place it in the synthesized witness table.
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocRefTypeStructKey,
-            diffArrayType);
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocRefTypeWitnessStructKey,
-            table);
+        if (table->getFirstDecorationOrChild() == nullptr)
+        {
+            // And place it in the synthesized witness table.
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocRefTypeStructKey,
+                diffArrayType);
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocRefTypeWitnessStructKey,
+                table);
+        }
     }
     else
     {
@@ -2106,17 +2118,20 @@ IRInst* DifferentiableTypeConformanceContext::buildTupleWitness(
             sharedContext->differentiableInterfaceType,
             (IRType*)inTupleType);
 
-        // And place it in the synthesized witness table.
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocTypeStructKey,
-            diffTupleType);
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocTypeWitnessStructKey,
-            table);
-        builder->createWitnessTableEntry(table, sharedContext->addMethodStructKey, addMethod);
-        builder->createWitnessTableEntry(table, sharedContext->zeroMethodStructKey, zeroMethod);
+        if (table->getFirstDecorationOrChild() == nullptr)
+        {
+            // And place it in the synthesized witness table.
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocTypeStructKey,
+                diffTupleType);
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocTypeWitnessStructKey,
+                table);
+            builder->createWitnessTableEntry(table, sharedContext->addMethodStructKey, addMethod);
+            builder->createWitnessTableEntry(table, sharedContext->zeroMethodStructKey, zeroMethod);
+        }
 
         // Fill in differential method implementations.
         {
@@ -2219,15 +2234,18 @@ IRInst* DifferentiableTypeConformanceContext::buildTupleWitness(
             sharedContext->differentiablePtrInterfaceType,
             (IRType*)inTupleType);
 
-        // And place it in the synthesized witness table.
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocRefTypeStructKey,
-            diffTupleType);
-        builder->createWitnessTableEntry(
-            table,
-            sharedContext->differentialAssocRefTypeWitnessStructKey,
-            table);
+        if (table->getFirstDecorationOrChild() == nullptr)
+        {
+            // And place it in the synthesized witness table.
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocRefTypeStructKey,
+                diffTupleType);
+            builder->createWitnessTableEntry(
+                table,
+                sharedContext->differentialAssocRefTypeWitnessStructKey,
+                table);
+        }
     }
 
     return table;
@@ -3078,39 +3096,45 @@ struct AutoDiffPass : public InstPassBase
             builder.createWitnessTable(autodiffContext->differentiableInterfaceType, originalType);
         result.diffWitness = origTypeIsDiffWitness;
 
-        builder.createWitnessTableEntry(
-            origTypeIsDiffWitness,
-            autodiffContext->differentialAssocTypeStructKey,
-            diffType);
-        builder.createWitnessTableEntry(
-            origTypeIsDiffWitness,
-            autodiffContext->differentialAssocTypeWitnessStructKey,
-            diffTypeIsDiffWitness);
-        builder.createWitnessTableEntry(
-            origTypeIsDiffWitness,
-            autodiffContext->zeroMethodStructKey,
-            zeroMethod);
-        builder.createWitnessTableEntry(
-            origTypeIsDiffWitness,
-            autodiffContext->addMethodStructKey,
-            addMethod);
+        if (origTypeIsDiffWitness->getFirstDecorationOrChild() == nullptr)
+        {
+            builder.createWitnessTableEntry(
+                origTypeIsDiffWitness,
+                autodiffContext->differentialAssocTypeStructKey,
+                diffType);
+            builder.createWitnessTableEntry(
+                origTypeIsDiffWitness,
+                autodiffContext->differentialAssocTypeWitnessStructKey,
+                diffTypeIsDiffWitness);
+            builder.createWitnessTableEntry(
+                origTypeIsDiffWitness,
+                autodiffContext->zeroMethodStructKey,
+                zeroMethod);
+            builder.createWitnessTableEntry(
+                origTypeIsDiffWitness,
+                autodiffContext->addMethodStructKey,
+                addMethod);
+        }
 
-        builder.createWitnessTableEntry(
-            diffTypeIsDiffWitness,
-            autodiffContext->differentialAssocTypeStructKey,
-            diffType);
-        builder.createWitnessTableEntry(
-            diffTypeIsDiffWitness,
-            autodiffContext->differentialAssocTypeWitnessStructKey,
-            diffTypeIsDiffWitness);
-        builder.createWitnessTableEntry(
-            diffTypeIsDiffWitness,
-            autodiffContext->zeroMethodStructKey,
-            zeroMethod);
-        builder.createWitnessTableEntry(
-            diffTypeIsDiffWitness,
-            autodiffContext->addMethodStructKey,
-            addMethod);
+        if (diffTypeIsDiffWitness->getFirstDecorationOrChild() == nullptr)
+        {
+            builder.createWitnessTableEntry(
+                diffTypeIsDiffWitness,
+                autodiffContext->differentialAssocTypeStructKey,
+                diffType);
+            builder.createWitnessTableEntry(
+                diffTypeIsDiffWitness,
+                autodiffContext->differentialAssocTypeWitnessStructKey,
+                diffTypeIsDiffWitness);
+            builder.createWitnessTableEntry(
+                diffTypeIsDiffWitness,
+                autodiffContext->zeroMethodStructKey,
+                zeroMethod);
+            builder.createWitnessTableEntry(
+                diffTypeIsDiffWitness,
+                autodiffContext->addMethodStructKey,
+                addMethod);
+        }
         return result;
     }
 
@@ -3178,6 +3202,7 @@ struct AutoDiffPass : public InstPassBase
                 for (auto param : genType->getParams())
                     args.add(param);
 
+                // Create a new WitnessTable with a different concreteType.
                 auto concreteType = as<IRType>(builder.emitSpecializeInst(
                     builder.getTypeKind(),
                     originalType,
@@ -3187,13 +3212,16 @@ struct AutoDiffPass : public InstPassBase
                 auto witnessTableType = innerResult.diffWitness->getFullType();
                 auto newWitnessTable = builder.createWitnessTable(witnessTableType, concreteType);
 
-                // Copy all entries from the old witness table to the new one
-                for (auto entry : as<IRWitnessTable>(innerResult.diffWitness)->getEntries())
+                if (newWitnessTable->getFirstDecorationOrChild() == nullptr)
                 {
-                    builder.createWitnessTableEntry(
-                        newWitnessTable,
-                        entry->getRequirementKey(),
-                        entry->getSatisfyingVal());
+                    builder.setInsertInto(newWitnessTable);
+                    for (auto entry : as<IRWitnessTable>(innerResult.diffWitness)->getEntries())
+                    {
+                        builder.createWitnessTableEntry(
+                            newWitnessTable,
+                            entry->getRequirementKey(),
+                            entry->getSatisfyingVal());
+                    }
                 }
 
                 result.diffWitness =
