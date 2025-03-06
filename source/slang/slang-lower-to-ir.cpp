@@ -8016,9 +8016,10 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
                             irWitnessTableBaseType,
                             irWitnessTable->getConcreteType());
 
-                        // Since IRWitnessTable is Hoistable, `createWitnessTable()` may return an
-                        // IRWitnessTable that already has decorations/children. We need to avoid
-                        // adding them more than once.
+                        // Since IRWitnessTable is Hoistable, `createWitnessTable()` may return
+                        // an IRWitnessTable that already has decorations/children. We should
+                        // add them only once.
+                        //
                         if (irSatisfyingWitnessTable->getFirstDecorationOrChild() == nullptr)
                         {
                             auto mangledName = getMangledNameForConformanceWitness(
@@ -8168,9 +8169,9 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             inheritanceDecl,
             LoweredValInfo::simple(findOuterMostGeneric(irWitnessTable)));
 
-        // Since IRWitnessTable is Hoistable, `createWitnessTable()` may return an
-        // IRWitnessTable that already has decorations/children. We need to avoid adding them
-        // more than once.
+        // Since IRWitnessTable is Hoistable, `createWitnessTable()` may return
+        // an IRWitnessTable that already has decorations/children. We should
+        // add them only once.
         //
         if (irWitnessTable->getFirstDecorationOrChild() == nullptr)
         {

@@ -1861,6 +1861,7 @@ IRInst* DifferentiableTypeConformanceContext::buildDifferentiablePairWitness(
             sharedContext->differentiableInterfaceType,
             (IRType*)pairType);
 
+        // Add WitnessTableEntry only once
         if (table->getFirstDecorationOrChild() == nullptr)
         {
             // And place it in the synthesized witness table.
@@ -1946,6 +1947,7 @@ IRInst* DifferentiableTypeConformanceContext::buildDifferentiablePairWitness(
             sharedContext->differentiablePtrInterfaceType,
             (IRType*)pairType);
 
+        // Add WitnessTableEntry only once
         if (table->getFirstDecorationOrChild() == nullptr)
         {
             // And place it in the synthesized witness table.
@@ -1992,6 +1994,7 @@ IRInst* DifferentiableTypeConformanceContext::buildArrayWitness(
             sharedContext->differentiableInterfaceType,
             (IRType*)arrayType);
 
+        // Add WitnessTableEntry only once
         if (table->getFirstDecorationOrChild() == nullptr)
         {
             // And place it in the synthesized witness table.
@@ -2074,6 +2077,7 @@ IRInst* DifferentiableTypeConformanceContext::buildArrayWitness(
             sharedContext->differentiablePtrInterfaceType,
             (IRType*)arrayType);
 
+        // Add WitnessTableEntry only once
         if (table->getFirstDecorationOrChild() == nullptr)
         {
             // And place it in the synthesized witness table.
@@ -2118,6 +2122,7 @@ IRInst* DifferentiableTypeConformanceContext::buildTupleWitness(
             sharedContext->differentiableInterfaceType,
             (IRType*)inTupleType);
 
+        // Add WitnessTableEntry only once
         if (table->getFirstDecorationOrChild() == nullptr)
         {
             // And place it in the synthesized witness table.
@@ -2234,6 +2239,7 @@ IRInst* DifferentiableTypeConformanceContext::buildTupleWitness(
             sharedContext->differentiablePtrInterfaceType,
             (IRType*)inTupleType);
 
+        // Add WitnessTableEntry only once
         if (table->getFirstDecorationOrChild() == nullptr)
         {
             // And place it in the synthesized witness table.
@@ -3096,6 +3102,7 @@ struct AutoDiffPass : public InstPassBase
             builder.createWitnessTable(autodiffContext->differentiableInterfaceType, originalType);
         result.diffWitness = origTypeIsDiffWitness;
 
+        // Add WitnessTableEntry only once
         if (origTypeIsDiffWitness->getFirstDecorationOrChild() == nullptr)
         {
             builder.createWitnessTableEntry(
@@ -3116,6 +3123,7 @@ struct AutoDiffPass : public InstPassBase
                 addMethod);
         }
 
+        // Add WitnessTableEntry only once
         if (diffTypeIsDiffWitness->getFirstDecorationOrChild() == nullptr)
         {
             builder.createWitnessTableEntry(
@@ -3212,6 +3220,7 @@ struct AutoDiffPass : public InstPassBase
                 auto witnessTableType = innerResult.diffWitness->getFullType();
                 auto newWitnessTable = builder.createWitnessTable(witnessTableType, concreteType);
 
+                // Add WitnessTableEntry only once
                 if (newWitnessTable->getFirstDecorationOrChild() == nullptr)
                 {
                     builder.setInsertInto(newWitnessTable);
