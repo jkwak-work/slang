@@ -8040,9 +8040,9 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
                                 astReqWitnessTable,
                                 irSatisfyingWitnessTable,
                                 mapASTToIRWitnessTable);
-                        }
 
-                        irSatisfyingWitnessTable->moveToEnd();
+                            irSatisfyingWitnessTable->moveToEnd();
+                        }
                     }
                     irSatisfyingVal = irSatisfyingWitnessTable;
                 }
@@ -8214,9 +8214,9 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
                     irWitnessTable,
                     mapASTToIRWitnessTable);
             }
-        }
 
-        irWitnessTable->moveToEnd();
+            irWitnessTable->moveToEnd();
+        }
 
         return LoweredValInfo::simple(
             finishOuterGenerics(subBuilder, irWitnessTable, outerGeneric));
