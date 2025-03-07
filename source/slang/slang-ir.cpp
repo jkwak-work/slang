@@ -4645,7 +4645,7 @@ void addGlobalValue(IRBuilder* builder, IRInst* value)
     // only one instance of this WitnessTable. The order among
     // siblings should remain because the later siblings may
     // have dependency to the earlier siblings.
-    // 
+    //
     if (parent == value->parent && value->getOp() == kIROp_WitnessTable)
     {
         SLANG_ASSERT(getIROpInfo(kIROp_WitnessTable).isHoistable());
