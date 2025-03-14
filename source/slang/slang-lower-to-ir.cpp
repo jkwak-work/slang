@@ -8023,16 +8023,15 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
                             irWitnessTableBaseType,
                             irWitnessTable->getConcreteType());
 
-                        // Since IRWitnessTable is Hoistable, `createWitnessTable()` may return
-                        // an IRWitnessTable that already has decorations/children. We should
-                        // add them only once.
-                        //
+                        // Avoid adding same decorations and child more than once.
                         if (irSatisfyingWitnessTable->getFirstDecorationOrChild() == nullptr)
                         {
                             auto mangledName = getMangledNameForConformanceWitness(
                                 subContext->astBuilder,
                                 astReqWitnessTable->witnessedType,
-                                astReqWitnessTable->baseType);
+                                astReqWitnessTable->baseType,
+                                irWitnessTable->getConcreteType());
+
                             subBuilder->addExportDecoration(
                                 irSatisfyingWitnessTable,
                                 mangledName.getUnownedSlice());
@@ -8133,14 +8132,6 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             }
         }
 
-        // Construct the mangled name for the witness table, which depends
-        // on the type that is conforming, and the type that it conforms to.
-        //
-        // TODO: This approach doesn't really make sense for generic `extension` conformances.
-        auto mangledName =
-            getMangledNameForConformanceWitness(context->astBuilder, subType, superType);
-
-
         // A witness table may need to be generic, if the outer
         // declaration (either a type declaration or an `extension`)
         // is generic.
@@ -8176,12 +8167,17 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             inheritanceDecl,
             LoweredValInfo::simple(findOuterMostGeneric(irWitnessTable)));
 
-        // Since IRWitnessTable is Hoistable, `createWitnessTable()` may return
-        // an IRWitnessTable that already has decorations/children. We should
-        // add them only once.
-        //
+        // Avoid adding same decorations and child more than once.
         if (irWitnessTable->getFirstDecorationOrChild() == nullptr)
         {
+            // Construct the mangled name for the witness table, which depends
+            // on the type that is conforming, and the type that it conforms to.
+            //
+            // TODO: This approach doesn't really make sense for generic `extension`
+            // conformances.
+            auto mangledName =
+                getMangledNameForConformanceWitness(context->astBuilder, subType, superType, irSubType);
+
             // TODO(JS):
             // Should the mangled name take part in obfuscation if enabled?
 
