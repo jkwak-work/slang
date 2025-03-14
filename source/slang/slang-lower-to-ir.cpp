@@ -8175,8 +8175,11 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             //
             // TODO: This approach doesn't really make sense for generic `extension`
             // conformances.
-            auto mangledName =
-                getMangledNameForConformanceWitness(context->astBuilder, subType, superType, irSubType);
+            auto mangledName = getMangledNameForConformanceWitness(
+                context->astBuilder,
+                subType,
+                superType,
+                irSubType);
 
             // TODO(JS):
             // Should the mangled name take part in obfuscation if enabled?
