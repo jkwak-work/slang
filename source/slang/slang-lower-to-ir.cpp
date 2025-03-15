@@ -8045,8 +8045,8 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
 
                         auto concreteType = irWitnessTable->getConcreteType();
 
-                        irSatisfyingWitnessTable = subBuilder->createWitnessTable(
-                            irWitnessTableBaseType, concreteType);
+                        irSatisfyingWitnessTable =
+                            subBuilder->createWitnessTable(irWitnessTableBaseType, concreteType);
 
                         // Avoid adding same decorations and child more than once.
                         if (irSatisfyingWitnessTable->getFirstDecorationOrChild() == nullptr)
@@ -8201,8 +8201,11 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             //
             // TODO: This approach doesn't really make sense for generic `extension`
             // conformances.
-            auto mangledName =
-                getMangledNameForConformanceWitness(context->astBuilder, subType, superType, irSubType->getOp());
+            auto mangledName = getMangledNameForConformanceWitness(
+                context->astBuilder,
+                subType,
+                superType,
+                irSubType->getOp());
 
             // TODO(JS):
             // Should the mangled name take part in obfuscation if enabled?
