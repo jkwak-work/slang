@@ -8020,9 +8020,11 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
                         // Need to construct a sub-witness-table
                         auto irWitnessTableBaseType =
                             lowerType(subContext, astReqWitnessTable->baseType);
+
+                        auto concreteType = irWitnessTable->getConcreteType();
+
                         irSatisfyingWitnessTable = subBuilder->createWitnessTable(
-                            irWitnessTableBaseType,
-                            irWitnessTable->getConcreteType());
+                            irWitnessTableBaseType, concreteType);
 
                         // Avoid adding same decorations and child more than once.
                         if (irSatisfyingWitnessTable->getFirstDecorationOrChild() == nullptr)
@@ -8031,11 +8033,12 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
                                 subContext->astBuilder,
                                 astReqWitnessTable->witnessedType,
                                 astReqWitnessTable->baseType,
-                                irWitnessTable->getConcreteType());
+                                concreteType->getOp());
 
                             subBuilder->addExportDecoration(
                                 irSatisfyingWitnessTable,
                                 mangledName.getUnownedSlice());
+
                             if (isExportedType(astReqWitnessTable->witnessedType))
                             {
                                 subBuilder->addHLSLExportDecoration(irSatisfyingWitnessTable);
@@ -8176,11 +8179,8 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             //
             // TODO: This approach doesn't really make sense for generic `extension`
             // conformances.
-            auto mangledName = getMangledNameForConformanceWitness(
-                context->astBuilder,
-                subType,
-                superType,
-                irSubType);
+            auto mangledName =
+                getMangledNameForConformanceWitness(context->astBuilder, subType, superType, irSubType->getOp());
 
             // TODO(JS):
             // Should the mangled name take part in obfuscation if enabled?
