@@ -1605,11 +1605,7 @@ static IRInst* pickLaterInstInSameParent(IRInst* left, IRInst* right)
     }
 }
 
-// Given an instruction that represents a constant, a type, etc.
-// Try to "hoist" it as far toward the global scope as possible
-// to insert it at a location where it will be maximally visible.
-//
-void addHoistableInst(IRBuilder* builder, IRInst* inst)
+static IRInst* getParentOfHoistableInst(IRBuilder* builder, IRInst* inst)
 {
     // Start with the assumption that we would insert this instruction
     // into the global scope (the instruction that represents the module)
@@ -1642,6 +1638,17 @@ void addHoistableInst(IRBuilder* builder, IRInst* inst)
     // or else the invariants of our IR have been violated.
     //
     SLANG_ASSERT(parent);
+
+    return parent;
+}
+
+// Given an instruction that represents a constant, a type, etc.
+// Try to "hoist" it as far toward the global scope as possible
+// to insert it at a location where it will be maximally visible.
+//
+void addHoistableInst(IRBuilder* builder, IRInst* inst)
+{
+    IRInst* parent = getParentOfHoistableInst(builder, inst);
 
     // Once we determine the parent instruction that the
     // new instruction should be inserted into, we need
@@ -1707,6 +1714,7 @@ void addHoistableInst(IRBuilder* builder, IRInst* inst)
         // the operands of `inst` come from the same
         // block that we insert after them.
         //
+        UInt operandCount = inst->getOperandCount();
         for (UInt ii = 0; ii < operandCount; ++ii)
         {
             auto operand = inst->getOperand(ii);
@@ -1742,29 +1750,15 @@ void addHoistableInst(IRBuilder* builder, IRInst* inst)
     }
 }
 
-// Add the given inst to the parent of its operand.
-void addInst(IRInst* inst)
+// This function finds where a parent should be for the given inst,
+// and add the inst as a last child.
+// When the inst is marked as Hoistable but the intention is only to de-duplicate it,
+// the inst can be added in a simpler manner.
+void addDeduplicatedInst(IRBuilder * builder, IRInst * inst)
 {
     SLANG_ASSERT(nullptr == inst->parent);
 
-    IRInst* parent = nullptr;
-
-    UInt operandCount = inst->getOperandCount();
-    for (UInt ii = 0; ii < operandCount; ++ii)
-    {
-        auto operand = inst->getOperand(ii);
-        if (!operand)
-            continue;
-
-        auto operandParent = operand->getParent();
-
-        parent = mergeCandidateParentsForHoistableInst(parent, operandParent);
-    }
-
-    if (inst->getFullType())
-    {
-        parent = mergeCandidateParentsForHoistableInst(parent, inst->getFullType()->getParent());
-    }
+    IRInst* parent = getParentOfHoistableInst(builder, inst);
 
     inst->insertAtEnd(parent);
 }
@@ -2648,7 +2642,7 @@ IRInst* IRBuilder::_findOrEmitHoistableInst(
         // In order to de-duplicate them, Witness-table is marked as Hoistable.
         // But it is not exactly a hoistable type and it can be added simpler.
         if (inst->getOp() == kIROp_WitnessTable)
-            addInst(inst);
+            addDeduplicatedInst(this, inst);
         else
             addHoistableInst(this, inst);
     }
