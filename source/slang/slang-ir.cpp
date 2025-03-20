@@ -1754,7 +1754,7 @@ void addHoistableInst(IRBuilder* builder, IRInst* inst)
 // and add the inst as a last child.
 // When the inst is marked as Hoistable but the intention is only to de-duplicate it,
 // the inst can be added in a simpler manner.
-void addDeduplicatedInst(IRBuilder * builder, IRInst * inst)
+void addDeduplicatedInst(IRBuilder* builder, IRInst* inst)
 {
     SLANG_ASSERT(nullptr == inst->parent);
 
