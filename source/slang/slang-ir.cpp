@@ -1743,7 +1743,7 @@ void addHoistableInst(IRBuilder* builder, IRInst* inst)
 }
 
 // Add the given inst to the parent of its operand.
-void addInst(IRInst * inst)
+void addInst(IRInst* inst)
 {
     SLANG_ASSERT(nullptr == inst->parent);
 
