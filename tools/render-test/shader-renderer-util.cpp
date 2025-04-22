@@ -14,9 +14,9 @@ inline int calcMipSize(int size, int level)
     return size > 0 ? size : 1;
 }
 
-inline Extents calcMipSize(Extents size, int mipLevel)
+inline Extent3D calcMipSize(Extent3D size, int mipLevel)
 {
-    Extents rs;
+    Extent3D rs;
     rs.width = calcMipSize(size.width, mipLevel);
     rs.height = calcMipSize(size.height, mipLevel);
     rs.depth = calcMipSize(size.depth, mipLevel);
@@ -24,7 +24,7 @@ inline Extents calcMipSize(Extents size, int mipLevel)
 }
 
 /// Given the type works out the maximum dimension size
-inline int calcMaxDimension(Extents size, TextureType type)
+inline int calcMaxDimension(Extent3D size, TextureType type)
 {
     switch (type)
     {
@@ -43,7 +43,7 @@ inline int calcMaxDimension(Extents size, TextureType type)
 }
 
 /// Given the type, calculates the number of mip maps. 0 on error
-inline int calcNumMipLevels(TextureType type, Extents size)
+inline int calcNumMipLevels(TextureType type, Extent3D size)
 {
     const int maxDimensionSize = calcMaxDimension(size, type);
     return (maxDimensionSize > 0) ? (Math::Log2Floor(maxDimensionSize) + 1) : 0;
@@ -75,7 +75,7 @@ inline int calcNumMipLevels(TextureType type, Extents size)
 
     textureDesc.sampleCount = inputDesc.sampleCount;
     textureDesc.format = format;
-    textureDesc.mipLevelCount = texData.m_mipLevels;
+    textureDesc.mipCount = texData.m_mipLevels;
     textureDesc.arrayLength = inputDesc.arrayLength > 0 ? inputDesc.arrayLength : 1;
     textureDesc.usage = TextureUsage::CopyDestination | TextureUsage::CopySource;
     switch (defaultState)
@@ -121,9 +121,9 @@ inline int calcNumMipLevels(TextureType type, Extents size)
         }
     }
 
-    if (textureDesc.mipLevelCount == 0)
+    if (textureDesc.mipCount == 0)
     {
-        textureDesc.mipLevelCount = calcNumMipLevels(textureDesc.type, textureDesc.size);
+        textureDesc.mipCount = calcNumMipLevels(textureDesc.type, textureDesc.size);
     }
 
     List<SubresourceData> initSubresources;
@@ -132,7 +132,7 @@ inline int calcNumMipLevels(TextureType type, Extents size)
     int subResourceCounter = 0;
     for (int a = 0; a < arrayLayerCount; ++a)
     {
-        for (int m = 0; m < textureDesc.mipLevelCount; ++m)
+        for (int m = 0; m < textureDesc.mipCount; ++m)
         {
             int subResourceIndex = subResourceCounter++;
             const int mipWidth = calcMipSize(textureDesc.size.width, m);
