@@ -15,7 +15,7 @@
         "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
         "SLANG_ENABLE_IR_BREAK_ALLOC": "$<$<CONFIG:Debug>:TRUE>$<$<NOT:$<CONFIG:Debug>>:FALSE>",
         "SLANG_RHI_AGILITY_SDK_DIR": "${sourceDir}/external/agility-sdk-preview-2025-04-02",
-	"SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
+        "SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
       }
     },
     {
@@ -49,7 +49,7 @@
       "generator": "Visual Studio 16 2019",
       "cacheVariables": {
         "SLANG_RHI_AGILITY_SDK_DIR": "${sourceDir}/external/agility-sdk-preview-2025-04-02",
-	"SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
+        "SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
       }
     },
     {
@@ -60,7 +60,7 @@
       "cacheVariables": {
         "SLANG_ENABLE_IR_BREAK_ALLOC": "TRUE",
         "SLANG_RHI_AGILITY_SDK_DIR": "${sourceDir}/external/agility-sdk-preview-2025-04-02",
-	"SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
+        "SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
       }
     },
     {
@@ -70,7 +70,7 @@
       "generator": "Visual Studio 17 2022",
       "cacheVariables": {
         "SLANG_RHI_AGILITY_SDK_DIR": "${sourceDir}/external/agility-sdk-preview-2025-04-02",
-	"SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
+        "SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
       }
     },
     {
@@ -81,7 +81,7 @@
       "cacheVariables": {
         "SLANG_ENABLE_IR_BREAK_ALLOC": "TRUE",
         "SLANG_RHI_AGILITY_SDK_DIR": "${sourceDir}/external/agility-sdk-preview-2025-04-02",
-	"SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
+        "SLANG_RHI_FETCH_AGILITY_SDK": "FALSE"
       }
     },
     {

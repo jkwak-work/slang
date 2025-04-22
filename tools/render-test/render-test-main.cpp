@@ -769,7 +769,7 @@ void RenderTestApp::_initializeAccelerationStructure()
         buildInput.type = AccelerationStructureBuildInputType::Triangles;
 
         AccelerationStructureBuildInputTriangles& triangles = buildInput.triangles;
-        BufferOffsetPair &vertexBufferWithOffset = triangles.vertexBuffers[0];
+        BufferOffsetPair& vertexBufferWithOffset = triangles.vertexBuffers[0];
         vertexBufferWithOffset.buffer = vertexBuffer;
         triangles.vertexBufferCount = 1;
         triangles.vertexFormat = Format::RGB32Float;
@@ -877,7 +877,7 @@ void RenderTestApp::_initializeAccelerationStructure()
         AccelerationStructureBuildInput buildInput = {};
         buildInput.type = AccelerationStructureBuildInputType::Instances;
 
-        AccelerationStructureBuildInputInstances &instances = buildInput.instances;
+        AccelerationStructureBuildInputInstances& instances = buildInput.instances;
         instances.instanceBuffer = instanceBuffer;
         instances.instanceCount = 1;
         instances.instanceStride = nativeInstanceDescSize;
