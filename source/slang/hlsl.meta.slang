@@ -22813,12 +22813,10 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
             {
                 result:$$CoopVec<T, N> = OpCooperativeVectorLoadNV $ptr $byteOffset16ByteAligned None;
             };
-#ifdef NOT_SUPPORTED_DXC_PREVIEW
         case hlsl:
             CoopVec<T, N> ret;
             ret.__Load(buffer, byteOffset16ByteAligned);
             return ret;
-#endif
         default:
             CoopVec<T, N> result;
             for(int i = 0; i < N; ++i)
@@ -22840,12 +22838,10 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
             {
                 result:$$CoopVec<T, N> = OpCooperativeVectorLoadNV $ptr $byteOffset16ByteAligned None;
             };
-#ifdef NOT_SUPPORTED_DXC_PREVIEW
         case hlsl:
             CoopVec<T, N> ret;
             ret.__Load(buffer, byteOffset16ByteAligned);
             return ret;
-#endif
         default:
             var vec = CoopVec<T, N>();
             for(int i = 0; i < N; ++i)
@@ -23242,16 +23238,25 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
     // Internal utilities for loading and storing
     //
 
-#ifdef NOT_SUPPORTED_DXC_PREVIEW
     [mutating]
     [require(hlsl, byteaddressbuffer)]
     void __Load(const ByteAddressBuffer buffer, uint byteOffset, uint alignment = 0)
-    { __target_switch { case hlsl: __intrinsic_asm ".Load"; } }
+    {
+        __target_switch
+        {
+            case hlsl: __intrinsic_asm "$0 = $1.Load< vector<$[0], $[1]> >($2)", T, N;
+        }
+    }
 
     [mutating]
     [require(hlsl, byteaddressbuffer_rw)]
     void __Load(const RWByteAddressBuffer buffer, uint byteOffset, uint alignment = 0)
-    { __target_switch { case hlsl: __intrinsic_asm ".Load"; } }
+    {
+        __target_switch
+        {
+            case hlsl: __intrinsic_asm "$0 = $1.Load< vector<$[0], $[1]> >($2)", T, N;
+        }
+    }
 
     __generic<let M : int>
     [mutating]
@@ -23262,14 +23267,18 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
 
     [require(hlsl, byteaddressbuffer_rw)]
     void __Store(RWByteAddressBuffer buffer, uint byteOffset, uint alignment = 0)
-    { __target_switch { case hlsl: __intrinsic_asm ".Store"; } }
+    {
+        __target_switch
+        {
+            case hlsl: __intrinsic_asm "$1.Store< vector<$[0], $[1]> >($2, $0)", T, N;
+        }
+    }
 
     __generic<let M : int>
     [require(hlsl)]
     // Careful, this takes the offset in elements
     void __Store(__ref groupshared T buffer[M], uint elemOffset)
     { __target_switch { case hlsl: __intrinsic_asm ".Store"; } }
-#endif
 
 ${{{{
 static const struct {
