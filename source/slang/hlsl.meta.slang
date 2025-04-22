@@ -23258,12 +23258,14 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
         }
     }
 
+#ifdef NOT_SUPPORTED_DXC_PREVIEW
     __generic<let M : int>
     [mutating]
     // Careful, this takes the offset in elements
     [require(hlsl)]
     void __Load(__constref groupshared T buffer[M], uint elemOffset)
     { __target_switch { case hlsl: __intrinsic_asm ".Load"; } }
+#endif
 
     [require(hlsl, byteaddressbuffer_rw)]
     void __Store(RWByteAddressBuffer buffer, uint byteOffset, uint alignment = 0)
@@ -23274,11 +23276,13 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
         }
     }
 
+#ifdef NOT_SUPPORTED_DXC_PREVIEW
     __generic<let M : int>
     [require(hlsl)]
     // Careful, this takes the offset in elements
     void __Store(__ref groupshared T buffer[M], uint elemOffset)
     { __target_switch { case hlsl: __intrinsic_asm ".Store"; } }
+#endif
 
 ${{{{
 static const struct {
@@ -23878,8 +23882,10 @@ CoopVec<T, N> tanh<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> x)
 {
     __target_switch
     {
+#ifdef NOT_SUPPORTED_DXC_PREVIEW
     case hlsl:
         __intrinsic_asm "tanh($0)";
+#endif
     case spirv:
         return spirv_asm
         {
@@ -23899,8 +23905,10 @@ CoopVec<T, N> atan<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> yO
 {
     __target_switch
     {
+#ifdef NOT_SUPPORTED_DXC_PREVIEW
     case hlsl:
         __intrinsic_asm "atan($0)";
+#endif
     case spirv:
         return spirv_asm
         {
