@@ -435,6 +435,12 @@ Extensions
 `SPV_KHR_cooperative_matrix`
 > Represents the SPIR-V extension for SPV_KHR_cooperative_matrix.
 
+`SPV_NV_cooperative_matrix2`
+> Represents the SPIR-V extension for SPV_NV_cooperative_matrix2.
+
+`SPV_NV_tensor_addressing`
+> Represents the SPIR-V extension for SPV_NV_tensor_addressing.
+
 `spvAtomicFloat32AddEXT`
 > Represents the SPIR-V capability for atomic float 32 add operations.
 
@@ -548,6 +554,24 @@ Extensions
 
 `spvCooperativeMatrixKHR`
 > Represents the SPIR-V capability for cooperative matrices
+
+`spvCooperativeMatrixReductionsNV`
+> Represents the SPIR-V capability for cooperative matrix 2
+
+`spvCooperativeMatrixConversionsNV`
+> Represents the SPIR-V capability for cooperative matrix 2
+
+`spvCooperativeMatrixPerElementOperationsNV`
+> Represents the SPIR-V capability for cooperative matrix 2
+
+`spvCooperativeMatrixTensorAddressingNV`
+> Represents the SPIR-V capability for cooperative matrix 2
+
+`spvCooperativeMatrixBlockLoadsNV`
+> Represents the SPIR-V capability for cooperative matrix 2
+
+`spvTensorAddressingNV`
+> Represents the SPIR-V capability for tensor addressing
 
 `spvMaximalReconvergenceKHR`
 > Represents the SPIR-V capability for maximal reconvergence.
@@ -915,6 +939,27 @@ Compound Capabilities
 `cooperative_vector_training`
 > Capabilities needed to train cooperative vectors
 
+`cooperative_matrix`
+> Capabilities needed to use cooperative matrices
+
+`cooperative_matrix_reduction`
+> Capabilities needed to use cooperative matrix 2
+
+`cooperative_matrix_conversions`
+> Capabilities needed to use cooperative matrix 2
+
+`cooperative_matrix_per_element_operations`
+> Capabilities needed to use cooperative matrix 2
+
+`cooperative_matrix_tensor_addressing`
+> Capabilities needed to use cooperative matrix 2
+
+`cooperative_matrix_block_loads`
+> Capabilities needed to use cooperative matrix 2
+
+`tensor_addressing`
+> Capabilities needed to use tensor addressing
+
 `any_stage`
 > Collection of all shader stages
 
@@ -1219,9 +1264,6 @@ Compound Capabilities
 Other
 ----------------------
 *Capabilities which may be deprecated*
-
-`cooperative_matrix`
-> Capabilities needed to use cooperative matrices
 
 `SPIRV_1_0`
 > Use `spirv_1_0` instead

@@ -1706,6 +1706,32 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                         static_cast<IRIntLit*>(coopMatType->getMatrixUse())->getValue(),
                         builder.getIntType()));
             }
+        case kIROp_CoopMatrixTensorLayoutType:
+            {
+                requireSPIRVCapability(SpvCapabilityTensorAddressingNV);
+                ensureExtensionDeclaration(UnownedStringSlice("SPV_NV_tensor_addressing"));
+
+                IRBuilder builder(m_irModule);
+                auto tensorLayoutType = static_cast<IRCoopMatrixTensorLayoutType*>(inst);
+                return emitOpTypeTensorLayout(
+                    tensorLayoutType,
+                    static_cast<IRIntLit*>(tensorLayoutType->getDimension())->getValue(),
+                    static_cast<IRIntLit*>(tensorLayoutType->getClampMode())->getValue()
+                );
+            }
+        case kIROp_CoopMatrixTensorViewType:
+            {
+                requireSPIRVCapability(SpvCapabilityTensorAddressingNV);
+                ensureExtensionDeclaration(UnownedStringSlice("SPV_NV_tensor_addressing"));
+
+                IRBuilder builder(m_irModule);
+                auto tensorViewType = static_cast<IRCoopMatrixTensorViewType*>(inst);
+                return emitOpTypeTensorView(
+                    tensorViewType,
+                    static_cast<IRIntLit*>(tensorViewType->getDimension())->getValue(),
+                    static_cast<IRBoolLit*>(tensorViewType->getHasDimension())->getValue()
+                );
+            }
         case kIROp_MatrixType:
             {
                 auto matrixType = static_cast<IRMatrixType*>(inst);

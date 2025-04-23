@@ -151,6 +151,7 @@ SpvInst* emitOpTypeCoopVec(IRInst* inst, const T1& componentType, const T2& comp
         componentCount);
 }
 
+// https://github.khronos.org/SPIRV-Registry/extensions/NV/SPV_NV_cooperative_matrix.html#OpTypeCooperativeMatrixNV
 template<typename T1, typename T2>
 SpvInst* emitOpTypeCoopMat(
     IRInst* inst,
@@ -171,6 +172,40 @@ SpvInst* emitOpTypeCoopMat(
         rowCount,
         columnCount,
         matrixUse);
+}
+
+// https://github.khronos.org/SPIRV-Registry/extensions/NV/SPV_NV_tensor_addressing.html#OpTypeTensorLayoutNV
+template<typename T1, typename T2>
+SpvInst* emitOpTypeTensorLayout(
+    IRInst* inst,
+    const T1& dim,
+    const T2& clampMode)
+{
+    static_assert(isSingular<T1>);
+    return emitInstMemoized(
+        getSection(SpvLogicalSectionID::ConstantsAndTypes),
+        inst,
+        SpvOpTypeTensorLayoutNV,
+        kResultID,
+        dim,
+        clampMode);
+}
+
+// https://github.khronos.org/SPIRV-Registry/extensions/NV/SPV_NV_tensor_addressing.html#OpTypeTensorViewNV
+template<typename T1, typename T2>
+SpvInst* emitOpTypeTensorView(
+    IRInst* inst,
+    const T1& dim,
+    const T2& hasDimensions)
+{
+    static_assert(isSingular<T1>);
+    return emitInstMemoized(
+        getSection(SpvLogicalSectionID::ConstantsAndTypes),
+        inst,
+        SpvOpTypeTensorViewNV,
+        kResultID,
+        dim,
+        hasDimensions);
 }
 
 // https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#OpTypeMatrix

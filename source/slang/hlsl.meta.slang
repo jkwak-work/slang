@@ -22443,6 +22443,312 @@ struct CoopMat<T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, l
     }
 }
 
+
+enum CoopMatClampMode
+{
+    Undefined,
+    Constant,
+    ClampToEdge,
+    Repeat,
+    RepeatMirrored
+};
+
+__intrinsic_type($(kIROp_CoopMatrixTensorLayoutType))
+[require(tensor_addressing)]
+__generic< let Dim : uint32_t, let Mode : CoopMatClampMode = CoopMatClampMode::Undefined>
+struct CoopMatTensorLayout
+{
+    __init()
+    {
+        __target_switch
+        {
+        case spirv:
+            return spirv_asm
+            {
+                result:$$CoopMatTensorLayout<Dim, Mode> = OpCreateTensorLayoutNV;
+            };
+        }
+    }
+};
+
+__generic<let Dim : uint32_t, let Mode : CoopMatClampMode>
+[require(tensor_addressing)]
+CoopMatTensorLayout<Dim, Mode> tensorLayoutSetDimension(CoopMatTensorLayout<Dim, Mode> t, uint32_t dim0)
+{
+    __target_switch
+    {
+    case spirv:
+        return spirv_asm
+        {
+            result:$$CoopMatTensorLayout<Dim, Mode> = OpTensorLayoutSetDimensionNV $t $dim0;
+        };
+    }
+}
+
+__generic<let Dim : uint32_t, let Mode : CoopMatClampMode>
+[require(tensor_addressing)]
+CoopMatTensorLayout<Dim, Mode> tensorLayoutSetStride(CoopMatTensorLayout<Dim, Mode> t, uint32_t s0)
+{
+    __target_switch
+    {
+    case spirv:
+        return spirv_asm
+        {
+            result:$$CoopMatTensorLayout<Dim, Mode> = OpTensorLayoutSetStrideNV $t $s0;
+        };
+    }
+}
+
+__generic<let Dim : uint32_t, let Mode : CoopMatClampMode>
+[require(tensor_addressing)]
+CoopMatTensorLayout<Dim, Mode> tensorLayoutSlice(CoopMatTensorLayout<Dim, Mode> t, uint32_t offset0, uint32_t span0)
+{
+    __target_switch
+    {
+    case spirv:
+        return spirv_asm
+        {
+            result:$$CoopMatTensorLayout<Dim, Mode> = OpTensorLayoutSliceNV $t $offset0 $span0;
+        };
+    }
+}
+
+__generic<let Dim : uint32_t, let Mode : CoopMatClampMode>
+[require(tensor_addressing)]
+CoopMatTensorLayout<Dim, Mode> tensorLayoutSetClampValue(CoopMatTensorLayout<Dim, Mode> t, CoopMatClampMode newMode)
+{
+    __target_switch
+    {
+    case spirv:
+        return spirv_asm
+        {
+            result:$$CoopMatTensorLayout<Dim, Mode> = OpTensorLayoutSetClampValueNV $t $newMode;
+        };
+    }
+}
+
+__generic<let Dim : uint32_t, let Mode : CoopMatClampMode>
+[require(tensor_addressing)]
+CoopMatTensorLayout<Dim, Mode> tensorLayoutSetBlockSize(CoopMatTensorLayout<Dim, Mode> t, uint32_t blockSize0)
+{
+    __target_switch
+    {
+    case spirv:
+        return spirv_asm
+        {
+            result:$$CoopMatTensorLayout<Dim, Mode> = OpTensorLayoutSetBlockSizeNV $t $blockSize0;
+        };
+    }
+}
+
+
+__intrinsic_type($(kIROp_CoopMatrixTensorViewType))
+[require(tensor_addressing)]
+__generic< let Dim : uint32_t, let HasDimensions : bool = false>
+struct CoopMatTensorView
+{
+    __init()
+    {
+        __target_switch
+        {
+        case spirv:
+            return spirv_asm
+            {
+                result:$$CoopMatTensorView<Dim, HasDimensions> = OpCreateTensorViewNV;
+            };
+        }
+    }
+};
+
+__generic<let Dim : uint32_t, let HasDimensions : bool>
+[require(tensor_addressing)]
+CoopMatTensorView<Dim, HasDimensions> tensorViewSetDimensions(CoopMatTensorView<Dim, HasDimensions> t, uint32_t dim0)
+{
+    __target_switch
+    {
+    case spirv:
+        return spirv_asm
+        {
+            result:$$CoopMatTensorView<Dim, HasDimensions> = OpTensorViewSetDimensionNV $t $dim0;
+        };
+    }
+}
+
+__generic<let Dim : uint32_t, let HasDimensions : bool>
+[require(tensor_addressing)]
+CoopMatTensorView< Dim, HasDimensions> tensorViewSetStride(CoopMatTensorView<Dim, HasDimensions> t, uint32_t s0)
+{
+    __target_switch
+    {
+    case spirv:
+        return spirv_asm
+        {
+            result:$$CoopMatTensorView<Dim, HasDimensions> = OpTensorViewSetStrideNV $t $s0;
+        };
+    }
+}
+
+__generic<let Dim : uint32_t, let HasDimensions : bool>
+[require(tensor_addressing)]
+CoopMatTensorView<Dim, HasDimensions> tensorViewSetClip(CoopMatTensorView<Dim, HasDimensions> t, uint clipRowOffset, uint clipRowSpan, uint clipColOffset, uint clipColSpan)
+{
+    __target_switch
+    {
+    case spirv:
+        return spirv_asm
+        {
+            result:$$CoopMatTensorView<Dim, HasDimensions> = OpTensorViewSetClipNV $t $clipRowOffset $clipRowSpan $clipColOffset $clipColSpan;
+        };
+    }
+}
+
+
+[ForceInline]
+[require(cooperative_matrix, tensor_addressing)]
+__generic< T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, let N : int, let R : CoopMatMatrixUse, let Dim : uint32_t, let Mode : CoopMatClampMode>
+void coopMatLoadTensor(inout CoopMat<T, S, M, N, R> m, __constref T[] buf, uint elementOffset, CoopMatTensorLayout<Dim, Mode> l)
+{
+    __target_switch
+    {
+    case spirv:
+        spirv_asm
+        {
+            %pointer:$$Ptr<T> = OpPtrAccessChain $buf $elementOffset;
+            OpCooperativeMatrixLoadTensorNV %pointer $m $l;
+        };
+    }
+}
+
+[ForceInline]
+[require(cooperative_matrix, tensor_addressing)]
+__generic< T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, let N : int, let R : CoopMatMatrixUse, let Dim : uint32_t, let Mode : CoopMatClampMode, let HasDimensions : bool>
+void coopMatLoadTensor(inout CoopMat<T, S, M, N, R> m, __constref T[] buf, uint elementOffset, CoopMatTensorLayout<Dim, Mode> l, CoopMatTensorView<Dim, HasDimensions> view)
+{
+    __target_switch
+    {
+    case spirv:
+        spirv_asm
+        {
+            %pointer:$$Ptr<T> = OpPtrAccessChain $buf $elementOffset;
+            OpCooperativeMatrixLoadTensorNV %pointer $m $l $view;
+        };
+    }
+}
+
+#if 0
+[ForceInline]
+[require(cooperative_matrix, tensor_addressing)]
+__generic< T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, let N : int, let R : CoopMatMatrixUse, let Dim : uint32_t, let Mode : CoopMatClampMode, DecodeFuncType : IFunc<TR, each TP>>
+void coopMatLoadTensor(inout CoopMat<T, S, M, N, R> m, __constref T[] buf, uint elementOffset, CoopMatTensorLayout<Dim, Mode> l, DecodeFuncType decodeFunc)
+{
+    __target_switch
+    {
+    case spirv:
+        spirv_asm
+        {
+            %pointer:$$Ptr<T> = OpPtrAccessChain $buf $elementOffset;
+            OpCooperativeMatrixLoadTensorNV %pointer $m $l $decodeFunc;
+        };
+    }
+}
+
+[ForceInline]
+[require(cooperative_matrix, tensor_addressing)]
+__generic< T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, let N : int, let R : CoopMatMatrixUse, let Dim : uint32_t, let Mode : CoopMatClampMode, let HasDimensions : bool, DecodeFuncType : IFunc<TR, each TP>>
+void coopMatLoadTensor(inout CoopMat<T, S, M, N, R> m, __constref T[] buf, uint elementOffset, CoopMatTensorLayout<Dim, Mode> l, CoopMatTensorView<Dim, HasDimensions> view, DecodeFuncType decodeFunc)
+{
+    __target_switch
+    {
+    case spirv:
+        spirv_asm
+        {
+            %pointer:$$Ptr<T> = OpPtrAccessChain $buf $elementOffset;
+            OpCooperativeMatrixLoadTensorNV %pointer $m $l $view $decodeFunc;
+        };
+    }
+}
+#endif
+
+[ForceInline]
+[require(cooperative_matrix, tensor_addressing)]
+__generic< T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, let N : int, let R : CoopMatMatrixUse, let Dim : uint32_t, let Mode : CoopMatClampMode>
+void coopMatStoreTensor(CoopMat<T, S, M, N, R> m, out T[] buf, uint elementOffset, CoopMatTensorLayout<Dim, Mode> l)
+{
+    __target_switch
+    {
+    case spirv:
+        spirv_asm
+        {
+            %pointer:$$Ptr<T> = OpPtrAccessChain $buf $elementOffset;
+            OpCooperativeMatrixStoreTensorNV %pointer $m $l;
+        };
+    }
+}
+
+[ForceInline]
+[require(cooperative_matrix, tensor_addressing)]
+__generic< T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, let N : int, let R : CoopMatMatrixUse, let Dim : uint32_t, let Mode : CoopMatClampMode, let HasDimensions : bool>
+void coopMatStoreTensor(CoopMat<T, S, M, N, R> m, out T[] buf, uint elementOffset, CoopMatTensorLayout<Dim, Mode> l, CoopMatTensorView<Dim, HasDimensions> view)
+{
+    __target_switch
+    {
+    case spirv:
+        spirv_asm
+        {
+            %pointer:$$Ptr<T> = OpPtrAccessChain $buf $elementOffset;
+            OpCooperativeMatrixStoreTensorNV %pointer $m $l $view;
+        };
+    }
+}
+
+#if 0
+[ForceInline]
+[require(cooperative_matrix_reduction)]
+__generic< T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, let N : int, let R : CoopMatMatrixUse, let Dim : uint32_t, let Mode : CoopMatClampMode, let HasDimensions : bool, DecodeFuncType : IFunc<TR, each TP>>
+void coopMatReduce(out CoopMat<T, S, M, N, R> result, CoopMat<T, S, M, N, R> m, int reduceMask, DecodeFuncType combineOp)
+{
+    __target_switch
+    {
+    case spirv:
+        spirv_asm
+        {
+            OpCooperativeMatrixReduceNV &result $m $reduceMask $combineOp;
+        };
+    }
+}
+
+[ForceInline]
+[require(cooperative_matrix_per_element_operations)]
+__generic< T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, let N : int, let R : CoopMatMatrixUse, let Dim : uint32_t, let Mode : CoopMatClampMode, let HasDimensions : bool, DecodeFuncType : IFunc< TR, each TP>>
+void coopMatPerElement(out CoopMat<T, S, M, N, R> result, CoopMat<T, S, M, N, R> m, DecodeFuncType elemOp
+{
+    __target_switch
+    {
+    case spirv:
+        spirv_asm
+        {
+            OpCooperativeMatrixPerElementNV &result $m $elemOp;
+        };
+    }
+}
+#endif
+
+[ForceInline]
+[require(cooperative_matrix_conversions)]
+__generic< T : __BuiltinArithmeticType, let S : CoopMatScope, let M : int, let N : int, let R : CoopMatMatrixUse>
+void coopMatTransposeNV(out CoopMat<T, S, N, M, R> result, CoopMat<T, S, M, N, R> m)
+{
+    __target_switch
+    {
+    case spirv:
+        spirv_asm
+        {
+            OpCooperativeMatrixTransposeNV &result $m;
+        };
+    }
+}
+
+
 //
 // Convenience loading functions for cooperative matrices which infer the
 // element type for structured buffers, pointers and groupshared arrays.
