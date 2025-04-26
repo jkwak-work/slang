@@ -4378,7 +4378,7 @@ static SlangResult _runTestsOnFile(TestContext* context, String filePath)
                     fileTestInfo->outputStem = outputStem;
                     fileTestInfo->options = testDetails.options;
 
-                    std::lock_guard lock(context->mutexFailedFileTests);
+                    std::lock_guard lock(context->mutexFailedTests);
                     context->failedFileTests.add(fileTestInfo);
                 }
                 else
@@ -4673,18 +4673,30 @@ static SlangResult runUnitTestModule(
                     TestServerProtocol::ExecuteUnitTestArgs::g_methodName,
                     &args,
                     exeRes);
-                const auto testResult = _asTestResult(ToolReturnCode(exeRes.resultCode));
+                auto testResult = _asTestResult(ToolReturnCode(exeRes.resultCode));
+
+                bool isFailed = (SLANG_FAILED(rpcRes) || testResult == TestResult::Fail);
 
                 // If the test fails, output any output - which might give information about
                 // individual tests that have failed.
-                if (SLANG_FAILED(rpcRes) || testResult == TestResult::Fail)
+                if (isFailed)
                 {
                     String output = getOutput(exeRes);
                     reporter->message(TestMessageType::TestFailure, output.getBuffer());
-                    context->failedUnitTests.add(test.testName);
+
                 }
 
-                reporter->addResult(testResult);
+                if (isFailed
+                    && !context->isRetry
+                    && !context->getTestReporter()->m_expectedFailureList.contains(test.testName))
+                {
+                    std::lock_guard lock(context->mutexFailedTests);
+                    context->failedUnitTests.add(test.command);
+                }
+                else
+                {
+                    reporter->addResult(testResult);
+                }
             }
         }
         else
@@ -4704,11 +4716,6 @@ static SlangResult runUnitTestModule(
                     TestMessageType::TestFailure,
                     "Exception was thrown during execution");
                 reporter->addResult(TestResult::Fail);
-            }
-
-            if (reporter->getResult() == TestResult::Fail)
-            {
-                context->failedUnitTests.add(test.testName);
             }
         }
     };
@@ -4961,8 +4968,18 @@ SlangResult innerMain(int argc, char** argv)
             for (bool isRetry : {false, true})
             {
                 auto spawnType = context.getFinalSpawnType();
+
+                context.isRetry = false;
                 if (isRetry)
+                {
+                    if (context.failedUnitTests.getCount() == 0)
+                        break;
+
+                    printf("Retrying unit tests...\n");
+                    context.isRetry = true;
+                    context.options.testPrefixes = std::move(context.failedUnitTests);
                     spawnType = SpawnType::Default;
+                }
 
                 // Run the unit tests
                 {
@@ -4977,14 +4994,6 @@ SlangResult innerMain(int argc, char** argv)
                     testOptions.categories.add(unitTestCategory);
                     runUnitTestModule(&context, testOptions, spawnType, "gfx-unit-test-tool");
                 }
-
-                // Retry when a few unit tests failed.
-                if (context.failedUnitTests.getCount() == 0)
-                    break;
-                if (context.failedUnitTests.getCount() >
-                    context.options.testPrefixes.getCount() / 4)
-                    break;
-                context.options.testPrefixes = context.failedUnitTests;
             }
 
             TestReporter::set(nullptr);
