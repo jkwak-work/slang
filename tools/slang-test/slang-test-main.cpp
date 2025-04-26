@@ -4681,6 +4681,7 @@ static SlangResult runUnitTestModule(
                 {
                     String output = getOutput(exeRes);
                     reporter->message(TestMessageType::TestFailure, output.getBuffer());
+                    context->failedUnitTests.add(test.testName);
                 }
 
                 reporter->addResult(testResult);
@@ -4703,6 +4704,11 @@ static SlangResult runUnitTestModule(
                     TestMessageType::TestFailure,
                     "Exception was thrown during execution");
                 reporter->addResult(TestResult::Fail);
+            }
+
+            if (reporter->getResult() == TestResult::Fail)
+            {
+                context->failedUnitTests.add(test.testName);
             }
         }
     };
@@ -4952,20 +4958,32 @@ SlangResult innerMain(int argc, char** argv)
             TestReporter::SuiteScope suiteScope(&reporter, "unit tests");
             TestReporter::set(&reporter);
 
-            const auto spawnType = context.getFinalSpawnType();
-
-            // Run the unit tests
+            for (bool isRetry : { false, true })
             {
-                TestOptions testOptions;
-                testOptions.categories.add(unitTestCategory);
-                testOptions.categories.add(smokeTestCategory);
-                runUnitTestModule(&context, testOptions, spawnType, "slang-unit-test-tool");
-            }
+                auto spawnType = context.getFinalSpawnType();
+                if (isRetry)
+                    spawnType = SpawnType::Default;
 
-            {
-                TestOptions testOptions;
-                testOptions.categories.add(unitTestCategory);
-                runUnitTestModule(&context, testOptions, spawnType, "gfx-unit-test-tool");
+                // Run the unit tests
+                {
+                    TestOptions testOptions;
+                    testOptions.categories.add(unitTestCategory);
+                    testOptions.categories.add(smokeTestCategory);
+                    runUnitTestModule(&context, testOptions, spawnType, "slang-unit-test-tool");
+                }
+
+                {
+                    TestOptions testOptions;
+                    testOptions.categories.add(unitTestCategory);
+                    runUnitTestModule(&context, testOptions, spawnType, "gfx-unit-test-tool");
+                }
+
+                // Retry when a few unit tests failed.
+                if (context.failedUnitTests.getCount() == 0)
+                    break;
+                if (context.failedUnitTests.getCount() > context.options.testPrefixes.getCount() / 4)
+                    break;
+                context.options.testPrefixes = context.failedUnitTests;
             }
 
             TestReporter::set(nullptr);
