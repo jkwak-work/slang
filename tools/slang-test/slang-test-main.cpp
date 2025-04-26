@@ -4683,12 +4683,10 @@ static SlangResult runUnitTestModule(
                 {
                     String output = getOutput(exeRes);
                     reporter->message(TestMessageType::TestFailure, output.getBuffer());
-
                 }
 
-                if (isFailed
-                    && !context->isRetry
-                    && !context->getTestReporter()->m_expectedFailureList.contains(test.testName))
+                if (isFailed && !context->isRetry &&
+                    !context->getTestReporter()->m_expectedFailureList.contains(test.testName))
                 {
                     std::lock_guard lock(context->mutexFailedTests);
                     context->failedUnitTests.add(test.command);
