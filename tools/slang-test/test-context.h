@@ -183,6 +183,7 @@ public:
 
     std::mutex mutexFailedFileTests;
     Slang::List<Slang::RefPtr<FileTestInfo>> failedFileTests;
+    Slang::List<Slang::String> failedUnitTests;
 
     Slang::IFileCheck* getFileCheck() { return m_fileCheck; };
 
