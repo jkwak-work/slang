@@ -4958,7 +4958,7 @@ SlangResult innerMain(int argc, char** argv)
             TestReporter::SuiteScope suiteScope(&reporter, "unit tests");
             TestReporter::set(&reporter);
 
-            for (bool isRetry : { false, true })
+            for (bool isRetry : {false, true})
             {
                 auto spawnType = context.getFinalSpawnType();
                 if (isRetry)
@@ -4981,7 +4981,8 @@ SlangResult innerMain(int argc, char** argv)
                 // Retry when a few unit tests failed.
                 if (context.failedUnitTests.getCount() == 0)
                     break;
-                if (context.failedUnitTests.getCount() > context.options.testPrefixes.getCount() / 4)
+                if (context.failedUnitTests.getCount() >
+                    context.options.testPrefixes.getCount() / 4)
                     break;
                 context.options.testPrefixes = context.failedUnitTests;
             }
