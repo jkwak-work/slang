@@ -925,9 +925,10 @@ template<typename T>
     ioList.growToCount(newStartIndex + ioRange.count + 1);
 
     auto buffer = ioList.getBuffer();
-    ::memmove((void*)(buffer + newStartIndex),
-              (void*)(buffer + ioRange.startIndex),
-              sizeof(*buffer) * ioRange.count);
+    ::memmove(
+        (void*)(buffer + newStartIndex),
+        (void*)(buffer + ioRange.startIndex),
+        sizeof(*buffer) * ioRange.count);
 
     buffer[newStartIndex + ioRange.count] = value;
 
