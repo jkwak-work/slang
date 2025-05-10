@@ -7,12 +7,12 @@ Capability Atoms
 
 ### Sections:
 
-1. [Targets](#targets)
-2. [Stages](#stages)
-3. [Versions](#versions)
-4. [Extensions](#extensions)
-5. [Compound Capabilities](#compound-capabilities)
-6. [Other](#other)
+1. [Targets](#Targets)
+2. [Stages](#Stages)
+3. [Versions](#Versions)
+4. [Extensions](#Extensions)
+5. [Compound Capabilities](#Compound-Capabilities)
+6. [Other](#Other)
 
 Targets
 ----------------------
@@ -151,6 +151,9 @@ Versions
 
 `hlsl_nvapi`
 > Represents HLSL NVAPI support.
+
+`hlsl_2018`
+> Represet HLSL compatibility support.
 
 `dxil_lib`
 > Represents capabilities required for DXIL Library compilation.
@@ -444,6 +447,9 @@ Extensions
 `SPV_KHR_cooperative_matrix`
 > Represents the SPIR-V extension for SPV_KHR_cooperative_matrix.
 
+`SPV_KHR_vulkan_memory_model`
+> Represents the SPIR-V extension for SPV_KHR_vulkan_memory_model.
+
 `spvAtomicFloat32AddEXT`
 > Represents the SPIR-V capability for atomic float 32 add operations.
 
@@ -566,6 +572,12 @@ Extensions
 
 `spvQuadControlKHR`
 > Represents the SPIR-V capability for quad group control.
+
+`spvVulkanMemoryModelKHR`
+> Represents the SPIR-V capability for vulkan memory model.
+
+`spvVulkanMemoryModelDeviceScopeKHR`
+> Represents the SPIR-V capability for vulkan memory model.
 
 `GL_EXT_buffer_reference`
 > Represents the GL_EXT_buffer_reference extension.
@@ -930,6 +942,12 @@ Compound Capabilities
 `cooperative_vector_training`
 > Capabilities needed to train cooperative vectors
 
+`cooperative_matrix`
+> Capabilities needed to use cooperative matrices
+
+`vk_mem_model`
+> Capabilities needed to use vulkan memory model
+
 `any_stage`
 > Collection of all shader stages
 
@@ -1237,9 +1255,6 @@ Compound Capabilities
 Other
 ----------------------
 *Capabilities which may be deprecated*
-
-`cooperative_matrix`
-> Capabilities needed to use cooperative matrices
 
 `SPIRV_1_0`
 > Use `spirv_1_0` instead

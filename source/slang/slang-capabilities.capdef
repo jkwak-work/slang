@@ -567,6 +567,10 @@ def SPV_NV_cooperative_vector : _spirv_1_6 + SPV_EXT_replicated_composites;
 /// [EXT]
 def SPV_KHR_cooperative_matrix : _spirv_1_6 + SPV_EXT_physical_storage_buffer;
 
+/// Represents the SPIR-V extension for SPV_KHR_vulkan_memory_model.
+/// [EXT]
+def SPV_KHR_vulkan_memory_model : _spirv_1_3;
+
 // SPIRV Capabilities.
 
 /// Represents the SPIR-V capability for atomic float 32 add operations.
@@ -732,6 +736,14 @@ def spvMaximalReconvergenceKHR : SPV_KHR_maximal_reconvergence;
 /// Represents the SPIR-V capability for quad group control.
 /// [EXT]
 def spvQuadControlKHR : SPV_KHR_quad_control;
+
+/// Represents the SPIR-V capability for vulkan memory model.
+/// [EXT]
+def spvVulkanMemoryModelKHR : SPV_KHR_vulkan_memory_model;
+
+/// Represents the SPIR-V capability for vulkan memory model.
+/// [EXT]
+def spvVulkanMemoryModelDeviceScopeKHR : SPV_KHR_vulkan_memory_model;
 
 // The following capabilities all pertain to how ray tracing shaders are translated
 // to GLSL, where there are two different extensions that can provide the core
@@ -1111,7 +1123,12 @@ alias cooperative_vector = _sm_6_8 | cpp | _cuda_sm_9_0 | spvCooperativeVectorNV
 alias cooperative_vector_training = spvCooperativeVectorTrainingNV;
 
 /// Capabilities needed to use cooperative matrices
+/// [Compound]
 alias cooperative_matrix = spvCooperativeMatrixKHR;
+
+/// Capabilities needed to use vulkan memory model
+/// [Compound]
+alias vk_mem_model = spvVulkanMemoryModelKHR;
 
 // Non-internal shader stages
 //
