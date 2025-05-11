@@ -1720,8 +1720,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                         builder.getIntType()),
                     emitIntConstant(
                         static_cast<IRIntLit*>(tensorLayoutType->getClampMode())->getValue(),
-                        builder.getIntType())
-                );
+                        builder.getIntType()));
             }
         case kIROp_TensorAddressingTensorViewType:
             {
@@ -1731,7 +1730,8 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                 IRBuilder builder(m_irModule);
                 auto tensorViewType = static_cast<IRTensorAddressingTensorViewType*>(inst);
 
-                IRIntegerValue dim = static_cast<IRIntLit*>(tensorViewType->getDimension())->getValue();
+                IRIntegerValue dim =
+                    static_cast<IRIntLit*>(tensorViewType->getDimension())->getValue();
                 SpvInst* spvDim = emitIntConstant(dim, builder.getIntType());
 
                 SpvInst* spvHasDimension =
@@ -1799,7 +1799,6 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                 {
                     SLANG_UNEXPECTED("Unsupported tensor dimension");
                 }
-
             }
         case kIROp_MatrixType:
             {

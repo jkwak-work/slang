@@ -176,10 +176,7 @@ SpvInst* emitOpTypeCoopMat(
 
 // https://github.khronos.org/SPIRV-Registry/extensions/NV/SPV_NV_tensor_addressing.html#OpTypeTensorLayoutNV
 template<typename T1, typename T2>
-SpvInst* emitOpTypeTensorLayout(
-    IRInst* inst,
-    const T1& dim,
-    const T2& clampMode)
+SpvInst* emitOpTypeTensorLayout(IRInst* inst, const T1& dim, const T2& clampMode)
 {
     static_assert(isSingular<T1>);
     return emitInstMemoized(
