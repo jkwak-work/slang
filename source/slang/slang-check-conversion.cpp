@@ -137,6 +137,7 @@ bool SemanticsVisitor::_readValueFromInitializerList(
             outToExpr,
             firstInitExpr->type,
             firstInitExpr,
+            getSink(),
             nullptr);
     }
 
@@ -491,7 +492,14 @@ bool SemanticsVisitor::_readAggregateValueFromInitializerList(
         if (ioArgIndex < argCount)
         {
             auto arg = fromInitializerListExpr->args[ioArgIndex++];
-            return _coerce(CoercionSite::Initializer, toType, outToExpr, arg->type, arg, nullptr);
+            return _coerce(
+                CoercionSite::Initializer,
+                toType,
+                outToExpr,
+                arg->type,
+                arg,
+                getSink(),
+                nullptr);
         }
         else
         {
@@ -1114,6 +1122,7 @@ bool SemanticsVisitor::_coerce(
     Expr** outToExpr,
     QualType fromType,
     Expr* fromExpr,
+    DiagnosticSink* sink,
     ConversionCost* outCost)
 {
     // If we are about to try and coerce an overloaded expression,
@@ -1457,7 +1466,7 @@ bool SemanticsVisitor::_coerce(
             derefExpr->checked = true;
         }
 
-        if (!_coerce(site, toType, outToExpr, fromElementType, derefExpr, &subCost))
+        if (!_coerce(site, toType, outToExpr, fromElementType, derefExpr, sink, &subCost))
         {
             return false;
         }
@@ -1509,7 +1518,7 @@ bool SemanticsVisitor::_coerce(
             openRefExpr = maybeOpenRef(fromExpr);
         }
 
-        if (!_coerce(site, toType, outToExpr, fromValueType, openRefExpr, &subCost))
+        if (!_coerce(site, toType, outToExpr, fromValueType, openRefExpr, sink, &subCost))
         {
             return false;
         }
@@ -1628,7 +1637,10 @@ bool SemanticsVisitor::_coerce(
         //
         if (outToExpr)
         {
-            getSink()->diagnose(fromExpr, Diagnostics::ambiguousConversion, fromType, toType);
+            if (sink)
+            {
+                sink->diagnose(fromExpr, Diagnostics::ambiguousConversion, fromType, toType);
+            }
 
             *outToExpr = CreateErrorExpr(fromExpr);
         }
@@ -1681,12 +1693,15 @@ bool SemanticsVisitor::_coerce(
         {
             if (cost >= kConversionCost_Explicit)
             {
-                getSink()->diagnose(fromExpr, Diagnostics::typeMismatch, toType, fromType);
-                getSink()->diagnoseWithoutSourceView(
-                    fromExpr,
-                    Diagnostics::noteExplicitConversionPossible,
-                    fromType,
-                    toType);
+                if (sink)
+                {
+                    sink->diagnose(fromExpr, Diagnostics::typeMismatch, toType, fromType);
+                    sink->diagnoseWithoutSourceView(
+                        fromExpr,
+                        Diagnostics::noteExplicitConversionPossible,
+                        fromType,
+                        toType);
+                }
             }
             else if (cost >= kConversionCost_Default)
             {
@@ -1710,9 +1725,9 @@ bool SemanticsVisitor::_coerce(
                         }
                     }
                 }
-                if (shouldEmitGeneralWarning)
+                if (shouldEmitGeneralWarning && sink)
                 {
-                    getSink()->diagnose(
+                    sink->diagnose(
                         fromExpr,
                         Diagnostics::unrecommendedImplicitConversion,
                         fromType,
@@ -1720,14 +1735,14 @@ bool SemanticsVisitor::_coerce(
                 }
             }
 
-            if (site == CoercionSite::Argument)
+            if (site == CoercionSite::Argument && sink)
             {
                 auto builtinConversionKind = getImplicitConversionBuiltinKind(
                     overloadContext.bestCandidate->item.declRef.getDecl());
                 if (builtinConversionKind == kBuiltinConversion_FloatToDouble)
                 {
                     if (!as<FloatingPointLiteralExpr>(fromExpr))
-                        getSink()->diagnose(fromExpr, Diagnostics::implicitConversionToDouble);
+                        sink->diagnose(fromExpr, Diagnostics::implicitConversionToDouble);
                 }
             }
         }
@@ -1836,7 +1851,7 @@ bool SemanticsVisitor::canCoerce(
     // which suppresses emission of any diagnostics
     // during the coercion process.
     //
-    bool rs = _coerce(CoercionSite::General, toType, nullptr, fromType, fromExpr, &cost);
+    bool rs = _coerce(CoercionSite::General, toType, nullptr, fromType, fromExpr, getSink(), &cost);
 
     if (outCost)
         *outCost = cost;
@@ -1893,10 +1908,14 @@ Expr* SemanticsVisitor::createModifierCastExpr(Type* toType, Expr* fromExpr)
 }
 
 
-Expr* SemanticsVisitor::coerce(CoercionSite site, Type* toType, Expr* fromExpr)
+Expr* SemanticsVisitor::coerce(
+    CoercionSite site,
+    Type* toType,
+    Expr* fromExpr,
+    DiagnosticSink* sink)
 {
     Expr* expr = nullptr;
-    if (!_coerce(site, toType, &expr, fromExpr->type, fromExpr, nullptr))
+    if (!_coerce(site, toType, &expr, fromExpr->type, fromExpr, sink, nullptr))
     {
         // Note(tfoley): We don't call `CreateErrorExpr` here, because that would
         // clobber the type on `fromExpr`, and an invariant here is that coercion
