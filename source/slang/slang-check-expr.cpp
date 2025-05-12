@@ -518,7 +518,11 @@ Expr* SemanticsVisitor::constructDerefExpr(Expr* base, QualType elementType, Sou
 {
     if (auto resPtrType = as<DescriptorHandleType>(base->type))
     {
-        return coerce(CoercionSite::ExplicitCoercion, resPtrType->getElementType(), base, getSink());
+        return coerce(
+            CoercionSite::ExplicitCoercion,
+            resPtrType->getElementType(),
+            base,
+            getSink());
     }
 
     auto derefExpr = m_astBuilder->create<DerefExpr>();
