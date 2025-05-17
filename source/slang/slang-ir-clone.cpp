@@ -5,6 +5,7 @@
 #include "slang-ir-util.h"
 #include "slang-ir.h"
 #include "slang-mangle.h"
+#include "slang-ir-track-uid.h"
 
 
 namespace Slang
@@ -53,6 +54,9 @@ IRInst* cloneInstAndOperands(IRCloneEnv* env, IRBuilder* builder, IRInst* oldIns
     SLANG_ASSERT(env);
     SLANG_ASSERT(builder);
     SLANG_ASSERT(oldInst);
+
+    // Track the cloning of this IR instance
+    TrackUID trackUID("cloneInstAndOperands", oldInst);
 
     // We start by mapping the type of the orignal instruction
     // to its replacement value, if any.

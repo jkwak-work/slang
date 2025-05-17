@@ -1,5 +1,6 @@
 // slang-ir.cpp
 #include "slang-ir.h"
+#include "slang-ir-track-uid.h"
 
 #include "../core/slang-basic.h"
 #include "../core/slang-writer.h"
@@ -1848,6 +1849,10 @@ IRInst* IRBuilder::_createInst(
 #if SLANG_ENABLE_IR_BREAK_ALLOC
     inst->_debugUID = _debugGetAndIncreaseInstCounter();
 #endif
+
+    char event[128];
+    snprintf(event, sizeof(event), "_createInst: op=%d", int(op));
+    TrackUID::log(event, inst);
 
     inst->typeUse.init(inst, type);
 
