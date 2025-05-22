@@ -4461,11 +4461,7 @@ IRInst* IRBuilder::emitGetTupleElement(IRType* type, IRInst* tuple, UInt element
     return emitGetTupleElement(type, tuple, getIntValue(getIntType(), element));
 }
 
-IRInst* IRBuilder::emitCoopMatMapElementFunc(
-    IRType* type,
-    IROp op,
-    IRInst* tuple,
-    IRInst* func)
+IRInst* IRBuilder::emitCoopMatMapElementFunc(IRType* type, IROp op, IRInst* tuple, IRInst* func)
 {
     IRInst* args[] = {tuple, func};
     return emitIntrinsicInst(type, op, 2, args);
