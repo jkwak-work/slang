@@ -7701,9 +7701,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         }
     }
 
-    SpvInst* emitCoopMatMapElementWithIFunc(
-        SpvInstParent* parent,
-        IRCoopMatMapElementIFunc* inst)
+    SpvInst* emitCoopMatMapElementWithIFunc(SpvInstParent* parent, IRCoopMatMapElementIFunc* inst)
     {
         ensureExtensionDeclaration(UnownedStringSlice("SPV_NV_cooperative_matrix2"));
         requireSPIRVCapability(SpvCapabilityCooperativeMatrixPerElementOperationsNV);

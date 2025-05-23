@@ -1297,7 +1297,7 @@ bool SemanticsVisitor::TryUnifyTypes(
     }
 
     // Unwrap ConcreteTypePack and unify types with regard to ExpandType.
-    if ((as<ConcreteTypePack>(fst) && as<ConcreteTypePack> (snd)) ||
+    if ((as<ConcreteTypePack>(fst) && as<ConcreteTypePack>(snd)) ||
         (as<ConcreteTypePack>(fst) && as<ExpandType>(snd)) ||
         (as<ExpandType>(fst) && as<ConcreteTypePack>(snd)))
     {
@@ -1315,7 +1315,7 @@ bool SemanticsVisitor::TryUnifyTypes(
 
         // ExpandType can match to more than one corresponding type.
         // We need to figure out how many types should be unified per each ExpandType.
-        // 
+        //
         // Consider this case:
         // left = ConcreteTypePack(ExpandType, ExpandType)
         // right = ConcreteTypePack(int, bool, float, double).
@@ -1465,7 +1465,8 @@ bool SemanticsVisitor::TryUnifyTypes(
                             QualType(sndExpand->getPatternType(), snd.isLeftValue)))
                         return false;
                 }
-                else if (auto fstGenericTypePackParamDecl =
+                else if (
+                    auto fstGenericTypePackParamDecl =
                         asGenericTypePackParamDecl(*iterFirst, constraints.genericDecl))
                 {
                     if (!TryUnifyTypeParam(
