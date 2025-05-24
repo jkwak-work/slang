@@ -1256,8 +1256,8 @@ static bool matchTypeArgMapping(
     ShortList<Type*>& secondTypes = outFlattenedSecond;
 
     // Count expandable types as we unwrap
-    Index firstExpandableCount = 0;
-    Index secondExpandableCount = 0;
+    int firstExpandableCount = 0;
+    int secondExpandableCount = 0;
 
     // Unwrap first type
     if (auto concretePack = as<ConcreteTypePack>(firstType))
@@ -1291,35 +1291,38 @@ static bool matchTypeArgMapping(
         secondExpandableCount++;
     }
 
-    Index firstCount = firstTypes.getCount();
-    Index secondCount = secondTypes.getCount();
-    Index countDifference = firstCount - secondCount;
+    int firstCount = (int)firstTypes.getCount();
+    int secondCount = (int)secondTypes.getCount();
+    int countDifference =
+        (firstCount - firstExpandableCount) - (secondCount - secondExpandableCount);
 
     // Determine which side should expand to match the other
     // We want to map the side with fewer expandables to the side with more expandables
-    bool shouldExpandFirst = false;
-    bool shouldExpandSecond = false;
-    Index typesPerExpand = 1;
+    int typesPerExpand = 0;
+    bool shouldExpandSecond = (countDifference > 0);
+    bool shouldExpandFirst = (countDifference < 0);
 
-    if (countDifference > 0)
+    if (shouldExpandSecond)
     {
         // More types on first, need to expand second
-        shouldExpandSecond = true;
         if (secondExpandableCount == 0)
             return false;
-        if (countDifference % secondExpandableCount != 0)
+
+        int countToMatch = countDifference + firstExpandableCount;
+        if (countToMatch % secondExpandableCount != 0)
             return false;
-        typesPerExpand = 1 + countDifference / secondExpandableCount;
+        typesPerExpand = countToMatch / secondExpandableCount;
     }
-    else if (countDifference < 0)
+    else if (shouldExpandFirst)
     {
         // More types on second, need to expand first
-        shouldExpandFirst = true;
         if (firstExpandableCount == 0)
             return false;
-        if ((-countDifference) % firstExpandableCount != 0)
+
+        int countToMatch = -countDifference + secondExpandableCount;
+        if (countToMatch % firstExpandableCount != 0)
             return false;
-        typesPerExpand = 1 + (-countDifference) / firstExpandableCount;
+        typesPerExpand = countToMatch / firstExpandableCount;
     }
     // If countDifference == 0, no expansion needed
 
@@ -1332,7 +1335,7 @@ static bool matchTypeArgMapping(
         IndexSpanPair mapping;
 
         // Determine spans based on expandable types and count difference
-        if (countDifference < 0)
+        if (shouldExpandFirst)
         {
             // Expanding first to match second
             if (isAbstractTypePack(firstTypes[firstIndex]))
@@ -1349,7 +1352,7 @@ static bool matchTypeArgMapping(
             }
             firstIndex++;
         }
-        else if (countDifference > 0)
+        else if (shouldExpandSecond)
         {
             // Expanding second to match first
             if (isAbstractTypePack(secondTypes[secondIndex]))
@@ -1378,8 +1381,8 @@ static bool matchTypeArgMapping(
         outMapping.add(mapping);
     }
 
-    SLANG_ASSERT(firstIndex == firstCount);
-    SLANG_ASSERT(secondIndex == secondCount);
+    SLANG_ASSERT(!shouldExpandSecond || firstIndex == firstCount);
+    SLANG_ASSERT(!shouldExpandFirst || secondIndex == secondCount);
     return true;
 }
 
