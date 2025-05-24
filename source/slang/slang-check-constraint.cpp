@@ -1231,8 +1231,14 @@ struct IndexSpan
     Index index;
     Index count;
 
-    IndexSpan() : index(0), count(0) {}
-    IndexSpan(Index idx, Index cnt) : index(idx), count(cnt) {}
+    IndexSpan()
+        : index(0), count(0)
+    {
+    }
+    IndexSpan(Index idx, Index cnt)
+        : index(idx), count(cnt)
+    {
+    }
 };
 
 struct IndexSpanPair
@@ -1241,7 +1247,10 @@ struct IndexSpanPair
     IndexSpan second;
 
     IndexSpanPair() {}
-    IndexSpanPair(IndexSpan f, IndexSpan s) : first(f), second(s) {}
+    IndexSpanPair(IndexSpan f, IndexSpan s)
+        : first(f), second(s)
+    {
+    }
 };
 
 // Helper function to map type arguments between two types, handling expandable types
@@ -1249,7 +1258,8 @@ static bool matchTypeArgMapping(
     Type* firstType,
     Type* secondType,
     ShortList<Type*>& outFlattenedFirst,
-    ShortList<Type*>& outFlattenedSecond, ShortList<IndexSpanPair>&outMapping)
+    ShortList<Type*>& outFlattenedSecond,
+    ShortList<IndexSpanPair>& outMapping)
 {
     // Unwrap and flatten the types
     ShortList<Type*>& firstTypes = outFlattenedFirst;
@@ -1506,7 +1516,9 @@ bool SemanticsVisitor::TryUnifyTypes(
                         return false;
                 }
             }
-            else if (auto genericTypePackParamDecl = asGenericTypePackParamDecl(singleType, constraints.genericDecl))
+            else if (
+                auto genericTypePackParamDecl =
+                    asGenericTypePackParamDecl(singleType, constraints.genericDecl))
             {
                 // Single GenericTypePackParamDecl unifies with multiple types
                 for (Index i = 0; i < multipleCount; ++i)
