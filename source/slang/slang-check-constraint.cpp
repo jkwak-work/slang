@@ -1530,16 +1530,18 @@ bool SemanticsVisitor::TryUnifyTypes(
                 auto genericTypePackParamDecl =
                     asGenericTypePackParamDecl(singleType, constraints.genericDecl))
             {
-                // Single GenericTypePackParamDecl unifies with multiple types as a pack - one pair total
-                // For GenericTypePackParamDecl, singleType always goes to first argument (no swapping)
+                // Single GenericTypePackParamDecl unifies with multiple types as a pack - one pair
+                // total For GenericTypePackParamDecl, singleType always goes to first argument (no
+                // swapping)
                 allowSwap = false;
-                
+
                 ShortList<Type*> multipleTypes;
                 for (Index i = 0; i < multipleCount; ++i)
                 {
                     multipleTypes.add((*multipleSideList)[multipleStartIndex + i]);
                 }
-                auto multipleTypePack = m_astBuilder->getTypePack(multipleTypes.getArrayView().arrayView);
+                auto multipleTypePack =
+                    m_astBuilder->getTypePack(multipleTypes.getArrayView().arrayView);
 
                 UnifyPair pair;
                 pair.context = unifyCtx;
