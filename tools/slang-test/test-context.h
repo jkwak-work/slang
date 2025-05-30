@@ -180,8 +180,8 @@ public:
     std::mutex mutex;
     Slang::RefPtr<Slang::JSONRPCConnection> m_languageServerConnection;
 
-    bool isRetry;
-    bool enableDebugLayers;
+    bool isRetry = false;
+    bool enableDebugLayers = false;
 
     std::mutex mutexFailedTests;
     Slang::List<Slang::RefPtr<FileTestInfo>> failedFileTests;
