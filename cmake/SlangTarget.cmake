@@ -427,17 +427,21 @@ function(slang_add_target dir type)
     endif()
 
     foreach(include_from ${ARG_INCLUDE_FROM_PRIVATE})
+        # Use generator expression to handle cases where include_from might be empty
+        # after generator expression evaluation
         target_include_directories(
             ${target}
             PRIVATE
-                $<TARGET_PROPERTY:${include_from},INTERFACE_INCLUDE_DIRECTORIES>
+                $<$<BOOL:${include_from}>:$<TARGET_PROPERTY:${include_from},INTERFACE_INCLUDE_DIRECTORIES>>
         )
     endforeach()
     foreach(include_from ${ARG_INCLUDE_FROM_PUBLIC})
+        # Use generator expression to handle cases where include_from might be empty
+        # after generator expression evaluation
         target_include_directories(
             ${target}
             PUBLIC
-                $<TARGET_PROPERTY:${include_from},INTERFACE_INCLUDE_DIRECTORIES>
+                $<$<BOOL:${include_from}>:$<TARGET_PROPERTY:${include_from},INTERFACE_INCLUDE_DIRECTORIES>>
         )
     endforeach()
 
