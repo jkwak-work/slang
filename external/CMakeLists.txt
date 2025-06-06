@@ -191,7 +191,12 @@ if(SLANG_ENABLE_SLANG_RHI)
 
     # CoopVec requires 1.717.0-preview, but we cannot use the version until slang-rhi allow
     # slang to override D3D12Version value
-    set(SLANG_RHI_FETCH_AGILITY_SDK_VERSION "1.616.0" CACHE STRING "Agility SDK version to fetch" FORCE)
+    set(SLANG_RHI_FETCH_AGILITY_SDK_VERSION
+        "1.616.0"
+        CACHE STRING
+        "Agility SDK version to fetch"
+        FORCE
+    )
     #set(SLANG_RHI_FETCH_AGILITY_SDK_VERSION "1.717.0-preview" CACHE STRING "Agility SDK version to fetch" FORCE)
     #set(SLANG_RHI_AGILITY_SDK_VERSION D3D12_PREVIEW_SDK_VERSION)
 
