@@ -921,9 +921,10 @@ Result linkAndOptimizeIR(
         if (requiredLoweringPassSet.autodiff)
         {
             dumpIRIfEnabled(codeGenContext, irModule, "BEFORE-AUTODIFF");
-            enableIRValidationAtInsert();
-            changed |= processAutodiffCalls(targetProgram, irModule, sink);
-            disableIRValidationAtInsert();
+            {
+                auto validationScope = enableIRValidationScope();
+                changed |= processAutodiffCalls(targetProgram, irModule, sink);
+            }
             dumpIRIfEnabled(codeGenContext, irModule, "AFTER-AUTODIFF");
         }
 
