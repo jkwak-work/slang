@@ -42,14 +42,14 @@ class [[nodiscard]] IRValidationScope
 public:
     // Constructor saves current state and sets new state
     explicit IRValidationScope(bool enableValidation);
-    
+
     // Destructor automatically restores previous state
     ~IRValidationScope();
-    
+
     // Non-copyable to prevent accidental copies
     IRValidationScope(const IRValidationScope&) = delete;
     IRValidationScope& operator=(const IRValidationScope&) = delete;
-    
+
     // Non-movable to keep it simple
     IRValidationScope(IRValidationScope&&) = delete;
     IRValidationScope& operator=(IRValidationScope&&) = delete;
