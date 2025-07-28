@@ -46,11 +46,11 @@ bool DebugValueStoreContext::isDebuggableType(IRType* type)
         }
     case kIROp_ArrayType:
     case kIROp_UnsizedArrayType:
-        {
-            auto arrayType = static_cast<IRArrayTypeBase*>(type);
-            debuggable = isDebuggableType(arrayType->getElementType());
-            break;
-        }
+    {
+        auto arrayType = static_cast<IRArrayTypeBase*>(type);
+        debuggable = isDebuggableType(arrayType->getElementType());
+        break;
+    }
     case kIROp_VectorType:
     case kIROp_MatrixType:
     case kIROp_PtrType:
@@ -61,25 +61,25 @@ bool DebugValueStoreContext::isDebuggableType(IRType* type)
         debuggable = true;
         break;
     case kIROp_Specialize:
-        {
-            auto specType = as<IRSpecialize>(type);
-            auto specTypeDebuggable =
-                isDebuggableType((IRType*)getResolvedInstForDecorations(specType));
-            if (!specTypeDebuggable)
-                break;
-            for (UInt i = 0; i < specType->getArgCount(); i++)
-            {
-                auto arg = specType->getArg(i);
-                if (isTypeKind(arg->getDataType()) &&
-                    !isDebuggableType((IRType*)specType->getArg(i)))
-                {
-                    specTypeDebuggable = false;
-                    break;
-                }
-            }
-            debuggable = false; // specTypeDebuggable;
+    {
+        auto specType = as<IRSpecialize>(type);
+        auto specTypeDebuggable =
+            isDebuggableType((IRType*)getResolvedInstForDecorations(specType));
+        if (!specTypeDebuggable)
             break;
+        for (UInt i = 0; i < specType->getArgCount(); i++)
+        {
+            auto arg = specType->getArg(i);
+            if (isTypeKind(arg->getDataType()) &&
+                !isDebuggableType((IRType*)specType->getArg(i)))
+            {
+                specTypeDebuggable = false;
+                break;
+            }
         }
+        debuggable = false; // specTypeDebuggable;
+        break;
+    }
     default:
         if (as<IRBasicType>(type))
             debuggable = true;
@@ -115,6 +115,11 @@ void DebugValueStoreContext::insertDebugValueStore(IRFunc* func)
             isRefParam = true;
             paramType = outType->getValueType();
         }
+        else if (auto ptrType = as<IRConstRefType>(param->getDataType()))
+        {
+            isRefParam = true;
+            paramType = ptrType->getValueType();
+        }
         if (!isDebuggableType(paramType))
             continue;
         auto debugVar = builder.emitDebugVar(
@@ -130,9 +135,18 @@ void DebugValueStoreContext::insertDebugValueStore(IRFunc* func)
         // Store the initial value of the parameter into the debug var.
         IRInst* paramVal = nullptr;
         if (!isRefParam)
+        {
             paramVal = param;
+        }
         else if (as<IRInOutType>(param->getDataType()))
+        {
             paramVal = builder.emitLoad(param);
+        }
+        else if (as<IRConstRefType>(param->getDataType()))
+        {
+            paramVal = builder.emitLoad(param);
+        }
+
         if (paramVal)
         {
             builder.emitDebugValue(debugVar, paramVal);
