@@ -46,11 +46,11 @@ bool DebugValueStoreContext::isDebuggableType(IRType* type)
         }
     case kIROp_ArrayType:
     case kIROp_UnsizedArrayType:
-    {
-        auto arrayType = static_cast<IRArrayTypeBase*>(type);
-        debuggable = isDebuggableType(arrayType->getElementType());
-        break;
-    }
+        {
+            auto arrayType = static_cast<IRArrayTypeBase*>(type);
+            debuggable = isDebuggableType(arrayType->getElementType());
+            break;
+        }
     case kIROp_VectorType:
     case kIROp_MatrixType:
     case kIROp_PtrType:
@@ -61,25 +61,25 @@ bool DebugValueStoreContext::isDebuggableType(IRType* type)
         debuggable = true;
         break;
     case kIROp_Specialize:
-    {
-        auto specType = as<IRSpecialize>(type);
-        auto specTypeDebuggable =
-            isDebuggableType((IRType*)getResolvedInstForDecorations(specType));
-        if (!specTypeDebuggable)
-            break;
-        for (UInt i = 0; i < specType->getArgCount(); i++)
         {
-            auto arg = specType->getArg(i);
-            if (isTypeKind(arg->getDataType()) &&
-                !isDebuggableType((IRType*)specType->getArg(i)))
-            {
-                specTypeDebuggable = false;
+            auto specType = as<IRSpecialize>(type);
+            auto specTypeDebuggable =
+                isDebuggableType((IRType*)getResolvedInstForDecorations(specType));
+            if (!specTypeDebuggable)
                 break;
+            for (UInt i = 0; i < specType->getArgCount(); i++)
+            {
+                auto arg = specType->getArg(i);
+                if (isTypeKind(arg->getDataType()) &&
+                    !isDebuggableType((IRType*)specType->getArg(i)))
+                {
+                    specTypeDebuggable = false;
+                    break;
+                }
             }
+            debuggable = false; // specTypeDebuggable;
+            break;
         }
-        debuggable = false; // specTypeDebuggable;
-        break;
-    }
     default:
         if (as<IRBasicType>(type))
             debuggable = true;

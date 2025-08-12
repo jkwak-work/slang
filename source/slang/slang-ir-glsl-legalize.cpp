@@ -316,9 +316,7 @@ void createMemberDebugInfo(
         // Add name hint to the member debug variable
         if (memberName.getLength() > 0)
         {
-            builder->addNameHintDecoration(
-                memberDebugVar,
-                memberName.getUnownedSlice());
+            builder->addNameHintDecoration(memberDebugVar, memberName.getUnownedSlice());
         }
 
         // Create DebugValue to connect the member debug variable to its global variable
