@@ -20,11 +20,19 @@ float4 main(PSIn input) : SV_TARGET
 // CHECK: %[[COMPILATION_UNIT_ID:[0-9]+]] = OpExtInst %void {{.*}} DebugCompilationUnit
 // CHECK: %[[FUNC_ID:[0-9]+]] = OpExtInst %void {{.*}} DebugFunction %{{[0-9]+}}
 
-// CHECK: %input = OpExtInst %void %{{[0-9]+}} DebugLocalVariable %{{[0-9]+}} %{{[0-9]+}} %{{[0-9]+}} %{{[^ ]+}} %{{[^ ]+}} %[[FUNC_ID]]
-// CHECK: %input_pos = OpExtInst %void %{{[0-9]+}} DebugLocalVariable %{{[0-9]+}} %{{[0-9]+}} %{{[0-9]+}} %{{[^ ]+}} %{{[^ ]+}} %[[FUNC_ID]]
-// CHECK: %testPos = OpExtInst %void %{{[0-9]+}} DebugLocalVariable %{{[0-9]+}} %{{[0-9]+}} %{{[0-9]+}} %{{[^ ]+}} %{{[^ ]+}} %[[FUNC_ID]]
+// CHECK-DAG: %input = OpExtInst %void %{{[0-9]+}} DebugLocalVariable {{.+}} %[[FUNC_ID]]
+// CHECK-DAG: %input_pos = OpExtInst %void %{{[0-9]+}} DebugLocalVariable {{.+}} %[[FUNC_ID]]
+// CHECK-DAG: %testPos = OpExtInst %void %{{[0-9]+}} DebugLocalVariable {{.+}} %[[FUNC_ID]]
 
-// CHECK: DebugGlobalVariable %{{[0-9]+}} %{{[0-9]+}} %{{[0-9]+}} %{{.*}} %{{.*}} %[[COMPILATION_UNIT_ID]] %{{[0-9]+}} %testTex
-// CHECK: DebugGlobalVariable %{{[0-9]+}} %{{[0-9]+}} %{{[0-9]+}} %{{.*}} %{{.*}} %[[COMPILATION_UNIT_ID]] %{{[0-9]+}} %testSampler
+// CHECK-DAG: DebugGlobalVariable %{{.+}} %[[COMPILATION_UNIT_ID]] %{{[0-9]+}} %testTex
+// CHECK-DAG: DebugGlobalVariable %{{.+}} %[[COMPILATION_UNIT_ID]] %{{[0-9]+}} %testSampler
 
-// CHECK: = OpExtInst %void %{{[0-9]+}} DebugValue %input_pos %gl_FragCoord
+// CHECK: %main = OpFunction %void None
+
+// CHECK-DAG: OpExtInst %void %{{[0-9]+}} DebugDeclare %input_pos %[[input_pos:[0-9]+]]
+// CHECK-DAG: OpStore %[[input_pos]] %[[gl_FragCoord_input_pos:[0-9]+]]
+// CHECK-DAG: %[[gl_FragCoord_input_pos]] = OpLoad %v4float %gl_FragCoord
+
+// CHECK-DAG: OpExtInst %void %{{[0-9]+}} DebugValue %input %[[input:[0-9]+]]
+// CHECK-DAG: OpStore %[[input]] %[[gl_FragCoord_input:[0-9]+]]
+// CHECK-DAG: %[[gl_FragCoord_input]] = OpLoad %v4float %gl_FragCoord
