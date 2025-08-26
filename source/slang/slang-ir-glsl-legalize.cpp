@@ -2249,6 +2249,17 @@ void assign(
                     }
                     break;
                 }
+            case ScalarizedVal::Flavor::typeAdapter:
+                {
+                    auto typeAdapter = as<ScalarizedTypeAdapterValImpl>(right.impl);
+                    auto adaptedRight = adaptType(
+                        builder,
+                        typeAdapter->val,
+                        typeAdapter->pretendType,
+                        typeAdapter->actualType);
+                    assign(builder, left, adaptedRight);
+                    break;
+                }
 
             default:
                 SLANG_UNEXPECTED("unimplemented");
@@ -2281,6 +2292,7 @@ void assign(
             auto typeAdapter = as<ScalarizedTypeAdapterValImpl>(left.impl);
             auto adaptedRight =
                 adaptType(builder, right, typeAdapter->actualType, typeAdapter->pretendType);
+
             assign(builder, typeAdapter->val, adaptedRight, index);
             break;
         }
@@ -3607,9 +3619,18 @@ void legalizeEntryPointParameterForGLSL(
             ptrType->getAddressSpace() == AddressSpace::Input ||
             ptrType->getAddressSpace() == AddressSpace::BuiltinInput);
 
-        setInsertAfterOrdinaryInst(builder, pp);
-        auto localVariable = builder->emitVar(valueType);
-        auto localVal = ScalarizedVal::address(localVariable);
+        // Check if debug info should be generated
+        bool shouldEmitDebugInfo = codeGenContext->getLinkage()->m_optionSet.getDebugInfoLevel() != DebugInfoLevel::None;
+
+        IRInst* localVariable = nullptr;
+        ScalarizedVal localVal;
+
+        if (shouldEmitDebugInfo)
+        {
+            setInsertAfterOrdinaryInst(builder, pp);
+            localVariable = builder->emitVar(valueType);
+            localVal = ScalarizedVal::address(localVariable);
+        }
 
         auto globalValue = createGLSLGlobalVaryings(
             context,
@@ -3621,7 +3642,10 @@ void legalizeEntryPointParameterForGLSL(
             stage,
             pp);
 
-        assign(builder, localVal, globalValue);
+        if (shouldEmitDebugInfo)
+        {
+            assign(builder, localVal, globalValue);
+        }
         tryReplaceUsesOfStageInput(context, globalValue, pp);
 
         for (auto dec : pp->getDecorations())
