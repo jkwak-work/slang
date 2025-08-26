@@ -3607,6 +3607,10 @@ void legalizeEntryPointParameterForGLSL(
             ptrType->getAddressSpace() == AddressSpace::Input ||
             ptrType->getAddressSpace() == AddressSpace::BuiltinInput);
 
+        setInsertAfterOrdinaryInst(builder, pp);
+        auto localVariable = builder->emitVar(valueType);
+        auto localVal = ScalarizedVal::address(localVariable);
+
         auto globalValue = createGLSLGlobalVaryings(
             context,
             codeGenContext,
@@ -3616,7 +3620,10 @@ void legalizeEntryPointParameterForGLSL(
             LayoutResourceKind::VaryingInput,
             stage,
             pp);
+
+        assign(builder, localVal, globalValue);
         tryReplaceUsesOfStageInput(context, globalValue, pp);
+
         for (auto dec : pp->getDecorations())
         {
             if (dec->getOp() != kIROp_GlobalVariableShadowingGlobalParameterDecoration)
