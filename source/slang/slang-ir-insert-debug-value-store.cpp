@@ -51,6 +51,13 @@ bool DebugValueStoreContext::isDebuggableType(IRType* type)
             debuggable = isDebuggableType(arrayType->getElementType());
             break;
         }
+    case kIROp_HLSLInputPatchType:
+    case kIROp_HLSLOutputPatchType:
+        {
+            auto elementType = as<IRType>(type->getOperand(0));
+            debuggable = isDebuggableType(elementType);
+            break;
+        }
     case kIROp_VectorType:
     case kIROp_MatrixType:
     case kIROp_PtrType:
@@ -115,6 +122,11 @@ void DebugValueStoreContext::insertDebugValueStore(IRFunc* func)
             isRefParam = true;
             paramType = outType->getValueType();
         }
+        else if (auto ptrType = as<IRConstRefType>(param->getDataType()))
+        {
+            isRefParam = true;
+            paramType = ptrType->getValueType();
+        }
         if (!isDebuggableType(paramType))
             continue;
         auto debugVar = builder.emitDebugVar(
@@ -130,9 +142,15 @@ void DebugValueStoreContext::insertDebugValueStore(IRFunc* func)
         // Store the initial value of the parameter into the debug var.
         IRInst* paramVal = nullptr;
         if (!isRefParam)
+        {
             paramVal = param;
-        else if (as<IRInOutType>(param->getDataType()))
+        }
+        else if (as<IRInOutType>(param->getDataType())
+            || as<IRConstRefType>(param->getDataType()))
+        {
             paramVal = builder.emitLoad(param);
+        }
+
         if (paramVal)
         {
             builder.emitDebugValue(debugVar, paramVal);
