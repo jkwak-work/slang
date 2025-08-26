@@ -3620,7 +3620,8 @@ void legalizeEntryPointParameterForGLSL(
             ptrType->getAddressSpace() == AddressSpace::BuiltinInput);
 
         // Check if debug info should be generated
-        bool shouldEmitDebugInfo = codeGenContext->getLinkage()->m_optionSet.getDebugInfoLevel() != DebugInfoLevel::None;
+        bool shouldEmitDebugInfo =
+            codeGenContext->getLinkage()->m_optionSet.getDebugInfoLevel() != DebugInfoLevel::None;
 
         IRInst* localVariable = nullptr;
         ScalarizedVal localVal;
