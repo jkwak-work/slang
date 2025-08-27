@@ -1541,7 +1541,7 @@ String removeEmbeddedSourceFromSPIRV(const String& spirvOutput)
     StringBuilder filteredOutput;
     List<UnownedStringSlice> lines;
     StringUtil::calcLines(spirvOutput.getUnownedSlice(), lines);
-    
+
     if (spirvOutput.endsWith("\n"))
     {
         // The last empty line should be removed,
@@ -2415,7 +2415,8 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
     for (auto arg : input.testOptions->args)
     {
         // Filter out slang-test specific options that shouldn't be passed to slangc
-        if (arg == kPreserveEmbeddedSourceOption) continue;
+        if (arg == kPreserveEmbeddedSourceOption)
+            continue;
         cmdLine.addArg(arg);
     }
 
@@ -2461,8 +2462,9 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
 
     // Check if we need to preprocess SPIR-V output to remove embedded source code
     // This prevents filecheck from matching against embedded source instead of actual SPIR-V
-    // By default, remove embedded source for SPIR-V targets unless -preserve-embedded-source is specified
-    if ((target == SLANG_SPIRV || target == SLANG_SPIRV_ASM) && 
+    // By default, remove embedded source for SPIR-V targets unless -preserve-embedded-source is
+    // specified
+    if ((target == SLANG_SPIRV || target == SLANG_SPIRV_ASM) &&
         input.testOptions->args.indexOf(kPreserveEmbeddedSourceOption) == Index(-1))
     {
         actualOutput = removeEmbeddedSourceFromSPIRV(actualOutput);
