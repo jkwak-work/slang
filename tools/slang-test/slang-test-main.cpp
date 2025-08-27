@@ -54,6 +54,9 @@ SLANG_RHI_EXPORT_AGILITY_SDK
 
 using namespace Slang;
 
+// Constants for slang-test specific options
+static const char* kPreserveEmbeddedSourceOption = "-preserve-embedded-source";
+
 // Options for a particular test
 struct TestOptions
 {
@@ -1531,6 +1534,92 @@ ToolReturnCode spawnAndWait(
     return getReturnCode(outExeRes);
 }
 
+// Remove embedded source code from SPIR-V assembly output to prevent filecheck from matching
+// against embedded source instead of actual SPIR-V instructions
+String removeEmbeddedSourceFromSPIRV(const String& spirvOutput)
+{
+    StringBuilder filteredOutput;
+    List<UnownedStringSlice> lines;
+    StringUtil::calcLines(spirvOutput.getUnownedSlice(), lines);
+    
+    if (spirvOutput.endsWith("\n"))
+    {
+        // The last empty line should be removed,
+        // because `StringUtil::calcLines()` turns "A\nB\n" into three lines; not two.
+        SLANG_ASSERT(lines[lines.getCount() - 1] == "");
+        lines.setCount(lines.getCount() - 1);
+    }
+
+    // First pass: Find OpString IDs that are referenced by DebugSource
+    List<String> sourceStringIds;
+    for (const auto& line : lines)
+    {
+        UnownedStringSlice trimmedLine = line.trim();
+
+        if (trimmedLine.indexOf(UnownedStringSlice(" DebugSource ")) == Index(-1))
+            continue;
+
+        // Extract the last parameter which is the source string ID
+        // Pattern: %4 = OpExtInst %void %2 DebugSource %5 %1
+        List<UnownedStringSlice> tokens;
+        StringUtil::split(trimmedLine, ' ', tokens);
+
+        // The last token should be the source string ID
+        UnownedStringSlice lastToken = tokens.getLast();
+        if (lastToken.startsWith(UnownedStringSlice("%")))
+        {
+            sourceStringIds.add(String(lastToken));
+        }
+    }
+
+    // Second pass: Process embedded source strings to replace content with informative message
+    bool insideSourceString = false;
+    for (const auto& line : lines)
+    {
+        UnownedStringSlice trimmedLine = line.trim();
+
+        if (!insideSourceString)
+        {
+            Index equalPos = trimmedLine.indexOf(UnownedStringSlice(" = OpString"));
+            if (equalPos != Index(-1) && trimmedLine.startsWith(UnownedStringSlice("%")))
+            {
+                String currentStringId = String(trimmedLine.head(equalPos));
+                if (sourceStringIds.contains(currentStringId))
+                {
+                    insideSourceString = true;
+                    Index quotePos = line.indexOf('\"');
+                    if (quotePos != Index(-1))
+                    {
+                        filteredOutput.append(String(line.head(quotePos + 1)));
+                        filteredOutput.append("// slang-test removed the embedded source\n");
+                        filteredOutput.append("// Use `");
+                        filteredOutput.append(kPreserveEmbeddedSourceOption);
+                        filteredOutput.append("` to keep it explicitly\n\"\n");
+                    }
+                    continue;
+                }
+            }
+        }
+
+        if (insideSourceString)
+        {
+            if (trimmedLine.endsWith("\""))
+            {
+                insideSourceString = false;
+            }
+
+            // skip the embedded source lines
+            continue;
+        }
+
+        // Add this line to the filtered output
+        filteredOutput.append(line);
+        filteredOutput.append("\n");
+    }
+
+    return filteredOutput.produceString();
+}
+
 String getOutput(const ExecuteResult& exeRes)
 {
     ExecuteResult::ResultCode resultCode = exeRes.resultCode;
@@ -2325,6 +2414,8 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
 
     for (auto arg : input.testOptions->args)
     {
+        // Filter out slang-test specific options that shouldn't be passed to slangc
+        if (arg == kPreserveEmbeddedSourceOption) continue;
         cmdLine.addArg(arg);
     }
 
@@ -2367,6 +2458,15 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
     }
 
     String actualOutput = getOutput(exeRes);
+
+    // Check if we need to preprocess SPIR-V output to remove embedded source code
+    // This prevents filecheck from matching against embedded source instead of actual SPIR-V
+    // By default, remove embedded source for SPIR-V targets unless -preserve-embedded-source is specified
+    if ((target == SLANG_SPIRV || target == SLANG_SPIRV_ASM) && 
+        input.testOptions->args.indexOf(kPreserveEmbeddedSourceOption) == Index(-1))
+    {
+        actualOutput = removeEmbeddedSourceFromSPIRV(actualOutput);
+    }
 
     return _validateOutput(
         context,
