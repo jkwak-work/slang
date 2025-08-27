@@ -1582,12 +1582,14 @@ String removeEmbeddedSourceFromSPIRV(const String& spirvOutput)
                 String currentStringId = String(trimmedLine.head(equalPos));
                 if (sourceStringIds.contains(currentStringId))
                 {
-                    // Start processing this embedded source string - replace it with informative message
+                    // Start processing this embedded source string - replace it with informative
+                    // message
                     insideSourceString = true;
                     Index quotePos = line.indexOf('\"');
                     if (quotePos != Index(-1))
                     {
-                        filteredOutput.append(String(line.head(quotePos + 1))); // Keep up to opening quote
+                        filteredOutput.append(
+                            String(line.head(quotePos + 1))); // Keep up to opening quote
                         filteredOutput.append("// slang-test removed the embedded source\n");
                         filteredOutput.append("// Use `");
                         filteredOutput.append(kPreserveEmbeddedSourceOption);
@@ -2413,7 +2415,8 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
     for (auto arg : input.testOptions->args)
     {
         // Filter out slang-test specific options that shouldn't be passed to slangc
-        if (arg == kPreserveEmbeddedSourceOption) continue;
+        if (arg == kPreserveEmbeddedSourceOption)
+            continue;
         cmdLine.addArg(arg);
     }
 
@@ -2459,8 +2462,9 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
 
     // Check if we need to preprocess SPIR-V output to remove embedded source code
     // This prevents filecheck from matching against embedded source instead of actual SPIR-V
-    // By default, remove embedded source for SPIR-V targets unless -preserve-embedded-source is specified
-    if ((target == SLANG_SPIRV || target == SLANG_SPIRV_ASM) && 
+    // By default, remove embedded source for SPIR-V targets unless -preserve-embedded-source is
+    // specified
+    if ((target == SLANG_SPIRV || target == SLANG_SPIRV_ASM) &&
         input.testOptions->args.indexOf(kPreserveEmbeddedSourceOption) == Index(-1))
     {
         actualOutput = removeEmbeddedSourceFromSPIRV(actualOutput);
