@@ -1539,7 +1539,8 @@ String removeEmbeddedSourceFromSPIRV(const String& spirvOutput)
     List<UnownedStringSlice> lines;
     StringUtil::calcLines(spirvOutput.getUnownedSlice(), lines);
 
-    // First pass: Find OpString IDs that are referenced by DebugSource (these contain embedded source)
+    // First pass: Find OpString IDs that are referenced by DebugSource (these contain embedded
+    // source)
     List<String> sourceStringIds;
 
     for (const auto& line : lines)
