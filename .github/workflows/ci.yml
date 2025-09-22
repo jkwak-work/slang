@@ -190,7 +190,8 @@ jobs:
       config: debug
       runs-on: '["Windows", "self-hosted", "GCP-T4"]'
       test-category: full
-      full-gpu-tests: false
+      full-gpu-tests:
+        false
         # DO NOT INTEGERATE; CI TESTING ONLY
 
   test-windows-release-cl-x86_64-gpu:
@@ -204,7 +205,8 @@ jobs:
       config: release
       runs-on: '["Windows", "self-hosted", "GCP-T4"]'
       test-category: full
-      full-gpu-tests: false
+      full-gpu-tests:
+        false
         # DO NOT INTEGERATE; CI TESTING ONLY
 
   check-ci:
