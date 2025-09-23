@@ -524,7 +524,7 @@ static bool eliminateRedundantTemporaryCopyInFunc(IRFunc* func)
     // if "%temp" is used only in read-only contexts.
 
     bool overallChanged = false;
-    for (bool changed = true; changed; )
+    for (bool changed = true; changed;)
     {
         changed = false;
 
@@ -555,10 +555,11 @@ static bool eliminateRedundantTemporaryCopyInFunc(IRFunc* func)
 
                 // Do not optimize loads from semantic parameters because some semantics have
                 // builtin types that are vector types but pretend to be scalar types (e.g.,
-                // SV_DispatchThreadID is used as 'int id' but maps to 'float3 gl_GlobalInvocationID').
-                // The legalization step must remove the load instruction to maintain this pretense,
-                // which breaks our load/store optimization assumptions. Skip optimization when
-                // loading from semantics to let legalization handle the load removal.
+                // SV_DispatchThreadID is used as 'int id' but maps to 'float3
+                // gl_GlobalInvocationID'). The legalization step must remove the load instruction
+                // to maintain this pretense, which breaks our load/store optimization assumptions.
+                // Skip optimization when loading from semantics to let legalization handle the load
+                // removal.
                 if (auto param = as<IRParam>(loadedPtr))
                     if (param->findDecoration<IRSemanticDecoration>())
                         continue;
