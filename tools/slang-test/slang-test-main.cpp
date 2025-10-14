@@ -578,7 +578,11 @@ static SlangResult _gatherTestsForFile(
             }
             else
             {
-                fprintf(stderr, "Retrying to read test file '%s' (attempt %d)\n", filePath.getBuffer(), retryCount + 1);
+                fprintf(
+                    stderr,
+                    "Retrying to read test file '%s' (attempt %d)\n",
+                    filePath.getBuffer(),
+                    retryCount + 1);
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(retryCount * 100));
         }
