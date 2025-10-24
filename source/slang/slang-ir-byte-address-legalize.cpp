@@ -49,6 +49,10 @@ struct ByteAddressBufferLegalizationContext
         m_builder = IRBuilder(m_module);
 
         processInstRec(module->getModuleInst());
+
+        // After processing all instructions, handle propagation of legalized block parameters
+        // to their uses (function calls, etc.)
+        processBlockParams();
     }
 
     // We recursively walk the entire IR structure (except
@@ -985,46 +989,19 @@ struct ByteAddressBufferLegalizationContext
                 index);
         }
 
-        // Handle block parameters (phi nodes) that receive ByteAddressBuffer values
-        // from unconditional branches. Convert to StructuredBuffer<elementType>.
-        if (auto blockParam = as<IRParam>(byteAddressBuffer))
+        // Defer the handling of IRParam, because we need to propagate
+        // the type change to its "use"-s.
+        if (auto babParam = as<IRParam>(byteAddressBuffer))
         {
-            if (auto parentBlock = as<IRBlock>(blockParam->getParent()))
-            {
-                auto paramIndex = parentBlock->getParamIndex(blockParam);
-                IRType* byteAddressBufferType = blockParam->getDataType();
+            if (byteAddrBufferToReplace.containsKey(babParam))
+                return babParam;
 
-                // Check incoming branches and convert the argument types
-                for (auto use = parentBlock->firstUse; use; use = use->nextUse)
-                {
-                    auto uncondBranch = as<IRUnconditionalBranch>(use->getUser());
-                    if (!uncondBranch)
-                        continue;
-                    if (uncondBranch->getTargetBlock() != parentBlock)
-                        continue;
+            IRType* babType = babParam->getDataType();
+            IRType* structuredBufferType =
+                getEquivalentStructuredBufferParamType(elementType, babType);
 
-                    UInt argOperandIndex = 1 + paramIndex;
-                    auto argValue = uncondBranch->getOperand(argOperandIndex);
-
-                    auto argType = argValue->getDataType();
-                    if (!as<IRByteAddressBufferTypeBase>(argType))
-                        continue;
-
-                    // Convert global parameter to equivalent structured buffer
-                    if (auto globalParam = as<IRGlobalParam>(argValue))
-                    {
-                        auto equivalentParam =
-                            createEquivalentStructuredBufferParam(elementType, globalParam);
-                        uncondBranch->setOperand(argOperandIndex, equivalentParam);
-                    }
-                }
-
-                auto structuredBufferType =
-                    getEquivalentStructuredBufferParamType(elementType, byteAddressBufferType);
-                blockParam->setFullType(structuredBufferType);
-
-                return blockParam;
-            }
+            byteAddrBufferToReplace[babParam] = structuredBufferType;
+            return babParam;
         }
 
         // If we failed to pattern-match the byte-address buffer operand
@@ -1589,6 +1566,79 @@ struct ByteAddressBufferLegalizationContext
 
         return SLANG_OK;
     }
+
+    // Process legalized block parameters and propagate type changes to their uses.
+    // This handles all block parameters that were converted from ByteAddressBuffer
+    // to StructuredBuffer, updating their uses (e.g., function calls, passes through blocks).
+    void processBlockParams()
+    {
+        // Create a worklist for propagating type changes through the IR
+        List<IRInst*> workList;
+
+        // Initialize worklist with all block parameters that need propagation
+        for (auto& [babIR, structuredBufferType] : byteAddrBufferToReplace)
+        {
+            workList.add(babIR);
+        }
+
+        // Process the worklist to propagate type changes through all uses
+        while (workList.getCount() > 0)
+        {
+            auto babIR = workList.getLast();
+            workList.removeLast();
+
+            auto validBufferType = byteAddrBufferToReplace[babIR];
+
+            auto babIRType = babIR->getDataType();
+            if (isTypeLegalForByteAddressLoadStore(babIRType))
+            {
+                // Element type should be same.
+                SLANG_ASSERT(babIRType == validBufferType);
+                continue; // skip if already structuredbuffer
+            }
+
+            babIR->setFullType(validBufferType);
+
+            if (auto babParam = as<IRParam>(babIR))
+            {
+                auto parentBlock = as<IRBlock>(babIR->getParent());
+
+                // Handle Phi-node IRParam
+                auto paramIndex = parentBlock->getParamIndex(babParam);
+                if (paramIndex >= 0)
+                {
+                    UInt argOperandIndex = 1 + paramIndex;
+
+                    for (auto use = parentBlock->firstUse; use; use = use->nextUse)
+                    {
+                        auto user = use->getUser();
+                        auto branchIR = as<IRUnconditionalBranch>(user);
+                        if (!branchIR)
+                            continue;
+
+                        auto targetBlock = branchIR->getTargetBlock();
+                        if (targetBlock != parentBlock)
+                            continue;
+
+                        auto newItem = branchIR->getOperand(argOperandIndex);
+                        if (byteAddrBufferToReplace.containsKey(newItem))
+                            continue;
+
+                        if (!as<IRByteAddressBufferTypeBase>(newItem->getDataType()))
+                        {
+                            // Element type should be same.
+                            SLANG_ASSERT(babIRType == validBufferType);
+                            continue;
+                        }
+
+                        byteAddrBufferToReplace[newItem] = validBufferType;
+                        workList.add(newItem);
+                    }
+                }
+            }
+        }
+    }
+
 };
 
 
