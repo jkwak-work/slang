@@ -985,6 +985,48 @@ struct ByteAddressBufferLegalizationContext
                 index);
         }
 
+        // Handle block parameters (phi nodes) that receive ByteAddressBuffer values
+        // from unconditional branches. Convert to StructuredBuffer<elementType>.
+        if (auto blockParam = as<IRParam>(byteAddressBuffer))
+        {
+            if (auto parentBlock = as<IRBlock>(blockParam->getParent()))
+            {
+                auto paramIndex = parentBlock->getParamIndex(blockParam);
+                IRType* byteAddressBufferType = blockParam->getDataType();
+
+                // Check incoming branches and convert the argument types
+                for (auto use = parentBlock->firstUse; use; use = use->nextUse)
+                {
+                    auto uncondBranch = as<IRUnconditionalBranch>(use->getUser());
+                    if (!uncondBranch)
+                        continue;
+                    if (uncondBranch->getTargetBlock() != parentBlock)
+                        continue;
+
+                    UInt argOperandIndex = 1 + paramIndex;
+                    auto argValue = uncondBranch->getOperand(argOperandIndex);
+
+                    auto argType = argValue->getDataType();
+                    if (!as<IRByteAddressBufferTypeBase>(argType))
+                        continue;
+
+                    // Convert global parameter to equivalent structured buffer
+                    if (auto globalParam = as<IRGlobalParam>(argValue))
+                    {
+                        auto equivalentParam =
+                            createEquivalentStructuredBufferParam(elementType, globalParam);
+                        uncondBranch->setOperand(argOperandIndex, equivalentParam);
+                    }
+                }
+
+                auto structuredBufferType =
+                    getEquivalentStructuredBufferParamType(elementType, byteAddressBufferType);
+                blockParam->setFullType(structuredBufferType);
+
+                return blockParam;
+            }
+        }
+
         // If we failed to pattern-match the byte-address buffer operand
         // against something we can handle, then we need to bail out
         // of our attempt to legalize things here.
