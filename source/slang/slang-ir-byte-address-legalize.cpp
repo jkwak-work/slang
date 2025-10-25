@@ -1665,7 +1665,6 @@ struct ByteAddressBufferLegalizationContext
             }
         }
     }
-
 };
 
 
