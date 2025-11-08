@@ -1,4 +1,5 @@
 //TEST:COMPARE_COMPUTE(filecheck-buffer=NOBRANCH): -vk -shaderobj -output-using-type
+//TEST:SIMPLE(filecheck=SPIRV_BRANCH): -target spirv-asm -stage compute -entry computeMain -DBRANCH
 
 // VariablePointersStorageBuffer is not working on the current GCP servers; driver 573.07.
 // github issue #8876
@@ -6,14 +7,16 @@
 
 // This tests if a dynamic branching works for the legalization from ByteAddressBuffer to StructurredBuffer.
 
+//SPIRV_BRANCH: OpCapability VariablePointersStorageBuffer
+
 //TEST_INPUT:ubuffer(data=[0 0 0 0 0 0 0 0 0 0 0 0]):out,name outputBuffer
-RWStructuredBuffer<float4> outputBuffer;
+uniform RWStructuredBuffer<float4> outputBuffer;
 
 //TEST_INPUT:ubuffer(data=[10 11 12 13], stride=4):name input1
-ByteAddressBuffer input1;
+uniform ByteAddressBuffer input1;
 
 //TEST_INPUT:ubuffer(data=[20 21 22 23], stride=4):name input2
-ByteAddressBuffer input2;
+uniform ByteAddressBuffer input2;
 
 struct NestedObject
 {
