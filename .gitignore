@@ -134,6 +134,9 @@ perf.data.*
 # gh command
 .gh-pm.yml
 
+.slang-replays*
+log*.txt
+
 # act local testing (secrets, vars, event payloads)
 .secrets
 .vars
