@@ -136,6 +136,7 @@ perf.data.*
 
 .slang-replays*
 log*.txt
+replay-capture
 
 # act local testing (secrets, vars, event payloads)
 .secrets
