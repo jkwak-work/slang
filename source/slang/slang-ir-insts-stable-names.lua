@@ -773,4 +773,12 @@ return {
 	["NonEmptyPackWitness"] = 771,
 	["PackBranch"] = 772,
 	["Decoration.SpecializationDepthDecoration"] = 773,
+	["Type.MatrixRef"] = 774,
+	["makeMatrixRef"] = 775,
+	["Type.RWMatrixRef"] = 776,
+	["makeRWMatrixRef"] = 777,
+	["Type.VectorRef"] = 778,
+	["makeVectorRef"] = 779,
+	["Type.RWVectorRef"] = 780,
+	["makeRWVectorRef"] = 781,
 }
