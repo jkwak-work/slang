@@ -21,7 +21,11 @@
 RWByteAddressBuffer input;
 
 //TEST_INPUT:ubuffer(stride=4, count=256):out,name=outputBuffer
+#if defined(BAB)
+RWByteAddressBuffer outputBuffer;
+#else
 RWStructuredBuffer<uint32_t> outputBuffer;
+#endif
 
 using namespace linalg;
 

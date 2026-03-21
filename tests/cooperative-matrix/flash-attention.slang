@@ -227,3 +227,7 @@ void flashAttention_cm_standalone(
             return elem;
         });
 }
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void computeMain() {}

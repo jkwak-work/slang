@@ -27,10 +27,25 @@ using namespace linalg;
 [numthreads(32, 1, 1)]
 void computeMain()
 {
-    int32_t* ptrIn = inputBuffer;
-    int32_t* ptrOut = outputBuffer;
+    __target_switch
+    {
+    case spirv:
+        {
+            int32_t* ptrIn = inputBuffer;
+            int32_t* ptrOut = outputBuffer;
 
-    let stride = 16;
-    let mat = coopMatLoad<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator, CoopMatMatrixLayout.RowMajor>(ptrIn, 0, stride);
-    mat.Store<CoopMatMatrixLayout.RowMajor>(ptrOut, 0, 16);
+            let stride = 16;
+            let mat = coopMatLoad<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator, CoopMatMatrixLayout.RowMajor>(ptrIn, 0, stride);
+            mat.Store<CoopMatMatrixLayout.RowMajor>(ptrOut, 0, 16);
+        }
+    case cuda:
+        {
+            int32_t* ptrIn = inputBuffer;
+            int32_t* ptrOut = outputBuffer;
+
+            let stride = 16;
+            let mat = coopMatLoad<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator, CoopMatMatrixLayout.RowMajor>(ptrIn, 0, stride);
+            mat.Store<CoopMatMatrixLayout.RowMajor>(ptrOut, 0, 16);
+        }
+    }
 }

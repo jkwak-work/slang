@@ -1,5 +1,10 @@
 //TEST(compute):COMPARE_COMPUTE(filecheck-buffer=CHECK):-vk -emit-spirv-directly
 
+// DXC doesn't support groupshared yet. It says:
+// dxc 1.10: : error : error: Load/Store of LinAlg Matrices to/from groupshared unsupported yet.
+//DISABLE_TEST(compute):SIMPLE(filecheck=DXIL):-target dxil -profile cs_6_10 -entry computeMain -dxc-path dxc-sm610/ -Xdxc -Idxc-sm610/include
+//DXIL: result code = 0
+
 // CHECK: 1
 // CHECK-NEXT: 2
 // CHECK-NEXT: 3

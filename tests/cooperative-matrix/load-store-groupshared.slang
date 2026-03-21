@@ -10,14 +10,6 @@
 // CHECK-NEXT: 7
 // CHECK-NEXT: 8
 
-// CHECK: 1
-// CHECK-NEXT: 2
-// CHECK-NEXT: 3
-// CHECK-NEXT: 4
-// CHECK-NEXT: 5
-// CHECK-NEXT: 6
-// CHECK-NEXT: 7
-// CHECK-NEXT: 8
 #pragma warning(disable:41017)
 //TEST_INPUT:ubuffer(data=[1 2 3 4 5 6 7 8], stride=4, count=256):name=input
 ByteAddressBuffer input;
@@ -45,13 +37,29 @@ void computeMain()
     let result = coopMatLoad<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator, CoopMatMatrixLayout.RowMajor>(tempShared, 0, stride);
     result.Store<CoopMatMatrixLayout.RowMajor>(outputBuffer, 0, stride);
 
-    Ptr<int32_t, Access::ReadWrite, AddressSpace::GroupShared> tempSharedPtr = __getAddress(tempShared[0]);
-    let matC = CoopMat<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>.Load<CoopMatMatrixLayout.RowMajor>(tempSharedPtr, stride);
+    __target_switch
+    {
+    case spirv:
+        {
+            Ptr<int32_t, Access::ReadWrite, AddressSpace::GroupShared> tempSharedPtr = __getAddress(tempShared[0]);
+            let matC = CoopMat<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>.Load<CoopMatMatrixLayout.RowMajor>(tempSharedPtr, stride);
 
+            Ptr<uint4, Access::ReadWrite, AddressSpace::GroupShared> tempSharedPtr1 = __getAddress(tempShared1[0]);
+            matC.Store<CoopMatMatrixLayout.RowMajor, uint4>(tempSharedPtr1, stride);
 
-    Ptr<uint4, Access::ReadWrite, AddressSpace::GroupShared> tempSharedPtr1 = __getAddress(tempShared1[0]);
-    matC.Store<CoopMatMatrixLayout.RowMajor, uint4>(tempSharedPtr1, stride);
+            let matC1 = CoopMat<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>.Load<CoopMatMatrixLayout.RowMajor>(tempSharedPtr1, stride);
+            matC1.Store<CoopMatMatrixLayout.RowMajor>(outputBuffer1, 0, stride);
+        }
+    case cuda:
+        {
+            Ptr<int32_t, Access::ReadWrite, AddressSpace::GroupShared> tempSharedPtr = __getAddress(tempShared[0]);
+            let matC = CoopMat<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>.Load<CoopMatMatrixLayout.RowMajor>(tempSharedPtr, stride);
 
-    let matC1 = CoopMat<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>.Load<CoopMatMatrixLayout.RowMajor>(tempSharedPtr1, stride);
-    matC1.Store<CoopMatMatrixLayout.RowMajor>(outputBuffer1, 0, stride);
+            Ptr<uint4, Access::ReadWrite, AddressSpace::GroupShared> tempSharedPtr1 = __getAddress(tempShared1[0]);
+            matC.Store<CoopMatMatrixLayout.RowMajor, uint4>(tempSharedPtr1, stride);
+
+            let matC1 = CoopMat<int32_t, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>.Load<CoopMatMatrixLayout.RowMajor>(tempSharedPtr1, stride);
+            matC1.Store<CoopMatMatrixLayout.RowMajor>(outputBuffer1, 0, stride);
+        }
+    }
 }
