@@ -1014,18 +1014,31 @@ bool HLSLSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOu
             ensurePrelude("#include \"dx/linalg.h\"");
             ensurePrelude(kHLSLBuiltInPreludeCoopMat);
             static const char* kHelperNames[] = {
-                "__slang_cm_add", "__slang_cm_sub",
-                "__slang_cm_mul", "__slang_cm_div", "__slang_cm_neg"
-            };
+                "__slang_cm_add",
+                "__slang_cm_sub",
+                "__slang_cm_mul",
+                "__slang_cm_div",
+                "__slang_cm_neg"};
             int helperIdx = 0;
             switch (inst->getOp())
             {
-            case kIROp_Add: helperIdx = 0; break;
-            case kIROp_Sub: helperIdx = 1; break;
-            case kIROp_Mul: helperIdx = 2; break;
-            case kIROp_Div: helperIdx = 3; break;
-            case kIROp_Neg: helperIdx = 4; break;
-            default: break;
+            case kIROp_Add:
+                helperIdx = 0;
+                break;
+            case kIROp_Sub:
+                helperIdx = 1;
+                break;
+            case kIROp_Mul:
+                helperIdx = 2;
+                break;
+            case kIROp_Div:
+                helperIdx = 3;
+                break;
+            case kIROp_Neg:
+                helperIdx = 4;
+                break;
+            default:
+                break;
             }
             m_writer->emit(kHelperNames[helperIdx]);
             m_writer->emit("(");
@@ -1350,7 +1363,9 @@ bool HLSLSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOu
             if (auto coopMatType = as<IRCoopMatrixType>(dataType))
             {
                 const char* componentType = _getCoopMatComponentTypeName(
-                    coopMatType->getElementType()->getOp(), getSink(), inst->sourceLoc);
+                    coopMatType->getElementType()->getOp(),
+                    getSink(),
+                    inst->sourceLoc);
                 const char* matrixUse = _getCoopMatMatrixUseName(
                     static_cast<IRIntLit*>(coopMatType->getMatrixUse())->getValue());
                 if (!componentType || !matrixUse)
@@ -1745,18 +1760,22 @@ void HLSLSourceEmitter::emitSimpleTypeImpl(IRType* type)
             auto coopMatType = (IRCoopMatrixType*)type;
             // Map element type to dx::linalg::ComponentType name
             const char* componentType = _getCoopMatComponentTypeName(
-                coopMatType->getElementType()->getOp(), getSink(), type->sourceLoc);
-            IRIntegerValue scopeVal =
-                as<IRIntLit>(coopMatType->getScope()) ? as<IRIntLit>(coopMatType->getScope())->getValue() : 1;
+                coopMatType->getElementType()->getOp(),
+                getSink(),
+                type->sourceLoc);
+            IRIntegerValue scopeVal = as<IRIntLit>(coopMatType->getScope())
+                                          ? as<IRIntLit>(coopMatType->getScope())->getValue()
+                                          : 1;
             const char* matrixScope =
                 _getCoopMatMatrixScopeName(scopeVal, getSink(), type->sourceLoc);
-            const char* matrixUse =
-                _getCoopMatMatrixUseName(
-                    static_cast<IRIntLit*>(coopMatType->getMatrixUse())->getValue());
+            const char* matrixUse = _getCoopMatMatrixUseName(
+                static_cast<IRIntLit*>(coopMatType->getMatrixUse())->getValue());
             if (!componentType || !matrixScope || !matrixUse)
                 return;
-            IRIntegerValue rowCount = static_cast<IRIntLit*>(coopMatType->getRowCount())->getValue();
-            IRIntegerValue colCount = static_cast<IRIntLit*>(coopMatType->getColumnCount())->getValue();
+            IRIntegerValue rowCount =
+                static_cast<IRIntLit*>(coopMatType->getRowCount())->getValue();
+            IRIntegerValue colCount =
+                static_cast<IRIntLit*>(coopMatType->getColumnCount())->getValue();
             m_writer->emit("dx::linalg::Matrix<");
             m_writer->emit(componentType);
             m_writer->emit(", ");
