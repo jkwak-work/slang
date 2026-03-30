@@ -34,12 +34,20 @@ if(NOT DEFINED SLANG_DXC_BINARY_URL)
     return()
 endif()
 
-FetchContent_Declare(
+message(STATUS "Downloading DXC from: ${SLANG_DXC_BINARY_URL} ...")
+set(_dxc_fetch_args
     dxc
     URL "${SLANG_DXC_BINARY_URL}"
     SOURCE_SUBDIR _does_not_exist_
-    HTTP_HEADER "Authorization: token ${SLANG_GITHUB_TOKEN}"
 )
+if(SLANG_GITHUB_TOKEN)
+    list(APPEND _dxc_fetch_args HTTP_HEADER "Authorization: token ${SLANG_GITHUB_TOKEN}")
+endif()
+
+FetchContent_Declare(
+    ${_dxc_fetch_args}
+)
+
 FetchContent_GetProperties(dxc)
 if(NOT dxc_POPULATED)
     FetchContent_MakeAvailable(dxc)
