@@ -37,16 +37,21 @@ endif()
 message(STATUS "Downloading DXC from: ${SLANG_DXC_BINARY_URL} ...")
 set(_dxc_fetch_args
     dxc
-    URL "${SLANG_DXC_BINARY_URL}"
-    SOURCE_SUBDIR _does_not_exist_
+    URL
+    "${SLANG_DXC_BINARY_URL}"
+    SOURCE_SUBDIR
+    _does_not_exist_
 )
 if(SLANG_GITHUB_TOKEN)
-    list(APPEND _dxc_fetch_args HTTP_HEADER "Authorization: token ${SLANG_GITHUB_TOKEN}")
+    list(
+        APPEND
+        _dxc_fetch_args
+        HTTP_HEADER
+        "Authorization: token ${SLANG_GITHUB_TOKEN}"
+    )
 endif()
 
-FetchContent_Declare(
-    ${_dxc_fetch_args}
-)
+FetchContent_Declare(${_dxc_fetch_args})
 
 FetchContent_GetProperties(dxc)
 if(NOT dxc_POPULATED)
@@ -75,7 +80,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     foreach(_lib dxcompiler dxil)
         set(_src "${dxc_SOURCE_DIR}/lib/lib${_lib}.so")
-        set(_dst "${CMAKE_BINARY_DIR}/$<CONFIG>/${library_subdir}/lib${_lib}.so")
+        set(_dst
+            "${CMAKE_BINARY_DIR}/$<CONFIG>/${library_subdir}/lib${_lib}.so"
+        )
         add_custom_command(
             OUTPUT "${_dst}"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_src}" "${_dst}"
