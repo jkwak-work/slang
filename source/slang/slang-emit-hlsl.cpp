@@ -1157,9 +1157,7 @@ bool HLSLSourceEmitter::tryEmitInstStmtImpl(IRInst* inst)
             m_writer->emit(", ");
             if (m_sm610OrAbove)
             {
-                emitMatrixLayoutEnum_sm610(
-                    memoryLayout,
-                    cast<IRBoolLit>(transpose)->getValue());
+                emitMatrixLayoutEnum_sm610(memoryLayout, cast<IRBoolLit>(transpose)->getValue());
             }
             else
             {
@@ -1171,7 +1169,8 @@ bool HLSLSourceEmitter::tryEmitInstStmtImpl(IRInst* inst)
             emitMappedCoopVecComponentType(
                 coopVecMatMulAdd->getInputInterpretation(),
                 coopVecMatMulAdd->getInputInterpretationPackingFactor());
-            // Physical HLSL vector length (e.g. 1 x uint8_t4_packed for K==4); MatK stays logical K.
+            // Physical HLSL vector length (e.g. 1 x uint8_t4_packed for K==4); MatK stays logical
+            // K.
             m_writer->emit(", ");
             emitOperand(inputType->getElementCount(), getInfo(EmitOp::General));
             if (hasBias)
