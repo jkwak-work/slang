@@ -1248,12 +1248,24 @@ bool HLSLSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOu
             const char* funcName = nullptr;
             switch (inst->getOp())
             {
-            case kIROp_Add: funcName = "__slang_cm_add"; break;
-            case kIROp_Sub: funcName = "__slang_cm_sub"; break;
-            case kIROp_Mul: funcName = "__slang_cm_mul"; break;
-            case kIROp_Div: funcName = "__slang_cm_div"; break;
-            case kIROp_Neg: funcName = "__slang_cm_neg"; break;
-            default:        SLANG_UNEXPECTED("Unhandled CoopMat arithmetic op"); break;
+            case kIROp_Add:
+                funcName = "__slang_cm_add";
+                break;
+            case kIROp_Sub:
+                funcName = "__slang_cm_sub";
+                break;
+            case kIROp_Mul:
+                funcName = "__slang_cm_mul";
+                break;
+            case kIROp_Div:
+                funcName = "__slang_cm_div";
+                break;
+            case kIROp_Neg:
+                funcName = "__slang_cm_neg";
+                break;
+            default:
+                SLANG_UNEXPECTED("Unhandled CoopMat arithmetic op");
+                break;
             }
             m_writer->emit(funcName);
             m_writer->emit("(");
