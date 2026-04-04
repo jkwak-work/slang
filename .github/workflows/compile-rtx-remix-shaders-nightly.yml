@@ -110,6 +110,7 @@ jobs:
           echo "Using dxvk-remix commit: $commit"
 
       # Cache packman packages between runs to save ~2-5 minutes
+      # Note: exclude slang from the cache key since we provide our own build
       - name: Cache Packman packages
         uses: actions/cache@v4
         with:
@@ -119,7 +120,24 @@ jobs:
             packman-
           enableCrossOsArchive: false
 
-      # Download shader compilation tools via packman
+      # Comment out the Slang section in packman-external.xml so packman does not
+      # download Slang into the shared C:\packman-repo cache.  Downloading and then
+      # overwriting files inside that shared directory would corrupt the cache for
+      # other projects that also rely on it.  We supply our own locally-built Slang
+      # in the next step instead.
+      - name: Comment out Slang in packman-external.xml
+        run: |
+          cd dxvk-remix
+          awk '
+            /<dependency name="slang"/ { print "    <!-- Slang section commented out by CI"; in_slang=1 }
+            in_slang { print }
+            /<\/dependency>/ && in_slang { print "    -->"; in_slang=0; next }
+            !in_slang { print }
+          ' packman-external.xml > packman-external.xml.tmp
+          mv packman-external.xml.tmp packman-external.xml
+          echo "Slang section commented out in packman-external.xml"
+
+      # Download shader compilation tools via packman (Slang excluded above)
       # First run: ~2-5 min (downloads ~340MB)
       # Cached run: ~30 seconds
       - name: Download external dependencies (packman)
@@ -129,41 +147,25 @@ jobs:
           ./scripts-common/packman/packman.cmd pull packman-external.xml
         shell: bash
 
-      # Replace packman's Slang binaries with locally built version
-      # Keep packman's directory structure intact (including junctions)
-      # Just overwrite the executables and DLLs
-      - name: Replace packman Slang binaries with built version
+      # Packman did not create external/slang (it was excluded above).
+      # Create the directory ourselves and populate it with the locally built Slang.
+      - name: Set up locally built Slang for dxvk-remix
         shell: pwsh
         run: |
-          Write-Host "Replacing packman Slang binaries with locally built version..."
+          Write-Host "Setting up locally built Slang for dxvk-remix..."
 
           $remixSlangDir = "dxvk-remix\external\slang"
 
-          if (-not (Test-Path $remixSlangDir)) {
-            Write-Error "Packman Slang directory not found at: $remixSlangDir"
-            exit 1
-          }
+          # Create the directory (packman skipped it)
+          New-Item -ItemType Directory -Force -Path $remixSlangDir | Out-Null
+          Write-Host "Created directory: $remixSlangDir"
 
-          Write-Host "Found packman Slang at: $remixSlangDir"
-
-          # Show original version
-          $originalSlangc = Join-Path $remixSlangDir "slangc.exe"
-          if (Test-Path $originalSlangc) {
-            Write-Host "`nOriginal packman slangc version:"
-            $originalVersion = (& $originalSlangc -version 2>&1 | Out-String).Trim()
-            Write-Host $originalVersion
-          }
-
-          # Copy our built Slang binaries, overwriting packman's files
-          # This preserves the directory structure (including junctions)
+          # Copy our built Slang binaries into the directory
           $builtSlangBin = Resolve-Path "build\Release\bin"
-          Write-Host "`nOverwriting Slang binaries from: $builtSlangBin"
+          Write-Host "Copying Slang binaries from: $builtSlangBin"
           Copy-Item -Path "$builtSlangBin\*" -Destination $remixSlangDir -Recurse -Force
 
-          # Verify replacement succeeded
-          Write-Host "`nVerifying replacement..."
-
-          # Check that key files exist
+          # Verify required files are present
           # Note: slang.dll is deprecated, slang-compiler.dll is the new primary library
           $requiredFiles = @("slangc.exe", "slang-compiler.dll", "slang-glslang.dll")
           foreach ($file in $requiredFiles) {
@@ -174,24 +176,18 @@ jobs:
             }
           }
 
-          # List all copied Slang DLLs for verification
+          # List copied Slang files for verification
           Write-Host "`nCopied Slang files:"
           Get-ChildItem -Path $remixSlangDir -Filter "slang*" | ForEach-Object { Write-Host "  $($_.Name)" }
 
-          # Verify version changed
-          $newSlangc = Join-Path $remixSlangDir "slangc.exe"
-          $newVersion = (& $newSlangc -version 2>&1 | Out-String).Trim()
-          Write-Host "New slangc version:"
-          Write-Host $newVersion
-
-          if ($originalVersion -and ($newVersion -eq $originalVersion)) {
-            Write-Error "ERROR: Slangc version unchanged after replacement!"
-            exit 1
-          }
+          # Report version
+          $slangcPath = Join-Path $remixSlangDir "slangc.exe"
+          $version = (& $slangcPath -version 2>&1 | Out-String).Trim()
+          Write-Host "`nSlangc version: $version"
 
           # Check that version looks valid (not just a timestamp)
-          if ($newVersion -match '^\d{10,}$') {
-            Write-Error "ERROR: Slangc version appears invalid (timestamp only: $newVersion)"
+          if ($version -match '^\d{10,}$') {
+            Write-Error "ERROR: Slangc version appears invalid (timestamp only: $version)"
             Write-Error "This suggests the build failed to detect Git version tags"
             exit 1
           }
