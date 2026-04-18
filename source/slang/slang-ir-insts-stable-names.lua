@@ -832,5 +832,9 @@ return {
 	["SubpassLoad"] = 856,
 	["TranslateBase.IdentityRemat"] = 857,
 	["IncrementFunctionCoverageCounter"] = 858,
-	["IncrementBranchCoverageCounter"] = 859
+	["IncrementBranchCoverageCounter"] = 859,
+	["Decoration.nodeLaunch"] = 860,
+	["Decoration.nodeMaxDispatchGrid"] = 861,
+	["Decoration.nodeDispatchGrid"] = 862,
+	["Decoration.maxRecords"] = 863
 }
