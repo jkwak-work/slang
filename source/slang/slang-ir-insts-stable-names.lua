@@ -825,5 +825,9 @@ return {
 	["Type.Conditional"] = 849,
 	["getConditionalValue"] = 850,
 	["makeConditionalValue"] = 851,
-  ["SpecializeExistentialsInType"] = 852
+  ["SpecializeExistentialsInType"] = 852,
+  ["Decoration.nodeLaunch"] = 853,
+  ["Decoration.nodeMaxDispatchGrid"] = 854,
+  ["Decoration.nodeDispatchGrid"] = 855,
+  ["Decoration.maxRecords"] = 856
 }
