@@ -1469,8 +1469,7 @@ IRInst* mergeCandidateParentsForHoistableInst(IRInst* left, IRInst* right)
     //
     if (!parentNonBlock)
     {
-        for (auto candidate = leftNonBlock->getParent();
-             candidate && !parentNonBlock;
+        for (auto candidate = leftNonBlock->getParent(); candidate && !parentNonBlock;
              candidate = candidate->getParent())
         {
             for (auto rr = rightNonBlock; rr; rr = rr->getParent())
