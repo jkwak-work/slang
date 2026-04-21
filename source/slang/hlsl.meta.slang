@@ -33153,7 +33153,7 @@ __generic<T>
 [require(hlsl)]
 struct ThreadNodeOutputRecords
 {
-    T Get(uint index = 0)
+    Ref<T> Get(uint index = 0)
     {
         __target_switch
         {
@@ -33163,7 +33163,9 @@ struct ThreadNodeOutputRecords
     }
     __subscript(uint index) -> T
     {
-        get { return Get(index); }
+        [nonmutating]
+        __intrinsic_op($(kIROp_NodeOutputRecordGetElementPtr))
+        ref;
     }
     void OutputComplete()
     {
@@ -33180,7 +33182,7 @@ __generic<T>
 [require(hlsl)]
 struct GroupNodeOutputRecords
 {
-    T Get(uint index = 0)
+    Ref<T> Get(uint index = 0)
     {
         __target_switch
         {
@@ -33188,9 +33190,12 @@ struct GroupNodeOutputRecords
             __intrinsic_asm ".Get";
         }
     }
+
     __subscript(uint index) -> T
     {
-        get { return Get(index); }
+        [nonmutating]
+        __intrinsic_op($(kIROp_NodeOutputRecordGetElementPtr))
+        ref;
     }
     void OutputComplete()
     {
@@ -33223,12 +33228,12 @@ struct NodeOutput
             __intrinsic_asm ".GetThreadNodeOutputRecords";
         }
     }
-    GroupNodeOutputRecords<T> GetGroupSharedOutputRecords(uint count)
+    GroupNodeOutputRecords<T> GetGroupNodeOutputRecords(uint count)
     {
         __target_switch
         {
         case hlsl:
-            __intrinsic_asm ".GetGroupSharedOutputRecords";
+            __intrinsic_asm ".GetGroupNodeOutputRecords";
         }
     }
 };
