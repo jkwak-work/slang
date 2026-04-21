@@ -579,9 +579,10 @@ typedef uint32_t SlangSizeT;
         SLANG_SEVERITY_NOTE = 1,     /**< An informative message. */
         SLANG_SEVERITY_WARNING = 2,  /**< A warning, which indicates a possible problem. */
         SLANG_SEVERITY_ERROR = 3,    /**< An error, indicating that compilation failed. */
-        SLANG_SEVERITY_FATAL = 4,    /**< An unrecoverable error, which forced compilation to abort. */
-        SLANG_SEVERITY_INTERNAL = 5, /**< An internal error, indicating a logic error in the compiler.
-                                      */
+        SLANG_SEVERITY_FATAL = 4, /**< An unrecoverable error, which forced compilation to abort. */
+        SLANG_SEVERITY_INTERNAL =
+            5, /**< An internal error, indicating a logic error in the compiler.
+                */
     };
 
     typedef int SlangDiagnosticFlags;
@@ -615,7 +616,7 @@ typedef uint32_t SlangSizeT;
         SLANG_TARGET_UNKNOWN = 0,
         SLANG_TARGET_NONE = 1,
         SLANG_GLSL = 2,
-        SLANG_GLSL_VULKAN_DEPRECATED = 3,          //< deprecated and removed: just use `SLANG_GLSL`.
+        SLANG_GLSL_VULKAN_DEPRECATED = 3, //< deprecated and removed: just use `SLANG_GLSL`.
         SLANG_GLSL_VULKAN_ONE_DESC_DEPRECATED = 4, //< deprecated and removed.
         SLANG_HLSL = 5,
         SLANG_SPIRV = 6,
@@ -634,8 +635,8 @@ typedef uint32_t SlangSizeT;
         SLANG_CUDA_SOURCE = 17,           ///< Cuda source
         SLANG_PTX = 18,                   ///< PTX
         SLANG_CUDA_OBJECT_CODE = 19,      ///< Object code that contains CUDA functions.
-        SLANG_OBJECT_CODE = 20,     ///< Object code that can be used for later linking (kernel/shader)
-        SLANG_HOST_CPP_SOURCE = 21, ///< C++ code for host library or executable.
+        SLANG_OBJECT_CODE = 20, ///< Object code that can be used for later linking (kernel/shader)
+        SLANG_HOST_CPP_SOURCE = 21,     ///< C++ code for host library or executable.
         SLANG_HOST_HOST_CALLABLE = 22,  ///< Host callable host code (ie non kernel/shader)
         SLANG_CPP_PYTORCH_BINDING = 23, ///< C++ PyTorch binding code.
         SLANG_METAL = 24,               ///< Metal shading language
@@ -699,7 +700,7 @@ typedef uint32_t SlangSizeT;
     {
         SLANG_ARCHIVE_TYPE_UNDEFINED = 0,
         SLANG_ARCHIVE_TYPE_ZIP = 1,
-        SLANG_ARCHIVE_TYPE_RIFF = 2,         ///< Riff container with no compression
+        SLANG_ARCHIVE_TYPE_RIFF = 2, ///< Riff container with no compression
         SLANG_ARCHIVE_TYPE_RIFF_DEFLATE = 3,
         SLANG_ARCHIVE_TYPE_RIFF_LZ4 = 4,
         SLANG_ARCHIVE_TYPE_COUNT_OF,
@@ -783,13 +784,14 @@ typedef uint32_t SlangSizeT;
     typedef unsigned int SlangLineDirectiveModeIntegral;
     enum SlangLineDirectiveMode : SlangLineDirectiveModeIntegral
     {
-        SLANG_LINE_DIRECTIVE_MODE_DEFAULT = 0,    /**< Default behavior: pick behavior base on target. */
-        SLANG_LINE_DIRECTIVE_MODE_NONE = 1,       /**< Don't emit line directives at all. */
+        SLANG_LINE_DIRECTIVE_MODE_DEFAULT =
+            0,                              /**< Default behavior: pick behavior base on target. */
+        SLANG_LINE_DIRECTIVE_MODE_NONE = 1, /**< Don't emit line directives at all. */
         SLANG_LINE_DIRECTIVE_MODE_STANDARD = 2,   /**< Emit standard C-style `#line` directives. */
         SLANG_LINE_DIRECTIVE_MODE_GLSL = 3,       /**< Emit GLSL-style directives with file *number*
                                                        instead of name */
-        SLANG_LINE_DIRECTIVE_MODE_SOURCE_MAP = 4, /**< Use a source map to track line mappings (ie no
-                                                       #line will appear in emitting source) */
+        SLANG_LINE_DIRECTIVE_MODE_SOURCE_MAP = 4, /**< Use a source map to track line mappings (ie
+                                                     no #line will appear in emitting source) */
     };
 
     typedef int SlangSourceLanguageIntegral;
@@ -890,9 +892,9 @@ typedef uint32_t SlangSizeT;
     enum SlangDebugInfoFormat : SlangDebugInfoFormatIntegral
     {
         SLANG_DEBUG_INFO_FORMAT_DEFAULT = 0, ///< Use the default debugging format for the target
-        SLANG_DEBUG_INFO_FORMAT_C7 = 1,  ///< CodeView C7 format (typically means debugging
-                                         ///< information is embedded in the binary)
-        SLANG_DEBUG_INFO_FORMAT_PDB = 2, ///< Program database
+        SLANG_DEBUG_INFO_FORMAT_C7 = 1,      ///< CodeView C7 format (typically means debugging
+                                             ///< information is embedded in the binary)
+        SLANG_DEBUG_INFO_FORMAT_PDB = 2,     ///< Program database
 
         SLANG_DEBUG_INFO_FORMAT_STABS = 3, ///< Stabs
         SLANG_DEBUG_INFO_FORMAT_COFF = 4,  ///< COFF debug info
@@ -958,14 +960,14 @@ typedef uint32_t SlangSizeT;
         Specialize = 3,
         Help = 4,
         HelpStyle = 5,
-        Include = 6,  // stringValue: additional include path.
+        Include = 6, // stringValue: additional include path.
         Language = 7,
-        MatrixLayoutColumn = 8,         // bool
-        MatrixLayoutRow = 9,            // bool
-        ZeroInitialize = 10,            // bool
-        IgnoreCapabilities = 11,        // bool
+        MatrixLayoutColumn = 8,          // bool
+        MatrixLayoutRow = 9,             // bool
+        ZeroInitialize = 10,             // bool
+        IgnoreCapabilities = 11,         // bool
         RestrictiveCapabilityCheck = 12, // bool
-        ModuleName = 13,                // stringValue0: module name.
+        ModuleName = 13,                 // stringValue0: module name.
         Output = 14,
         Profile = 15, // intValue0: profile
         Stage = 16,   // intValue0: stage
@@ -1004,11 +1006,11 @@ typedef uint32_t SlangSizeT;
         Optimization = 46, // intValue0: OptimizationLevel
         Obfuscate = 47,    // bool
 
-        VulkanBindShift = 48, // intValue0 (higher 8 bits): kind; intValue0(lower bits): set;
-                              // intValue1: shift
-        VulkanBindGlobals = 49,       // intValue0: index; intValue1: set
-        VulkanInvertY = 50,           // bool
-        VulkanUseDxPositionW = 51,    // bool
+        VulkanBindShift = 48,      // intValue0 (higher 8 bits): kind; intValue0(lower bits): set;
+                                   // intValue1: shift
+        VulkanBindGlobals = 49,    // intValue0: index; intValue1: set
+        VulkanInvertY = 50,        // bool
+        VulkanUseDxPositionW = 51, // bool
         VulkanUseEntryPointName = 52, // bool
         VulkanUseGLLayout = 53,       // bool
         VulkanEmitReflection = 54,    // bool
@@ -1062,9 +1064,9 @@ typedef uint32_t SlangSizeT;
         ValidateUniformity = 90,
         AllowGLSL = 91,
         EnableExperimentalPasses = 92,
-        BindlessSpaceIndex = 93,       // int
-        SPIRVResourceHeapStride = 94,  // int: byte stride for SPIRV resource descriptor heap
-        SPIRVSamplerHeapStride = 95,   // int: byte stride for SPIRV sampler descriptor heap
+        BindlessSpaceIndex = 93,      // int
+        SPIRVResourceHeapStride = 94, // int: byte stride for SPIRV resource descriptor heap
+        SPIRVSamplerHeapStride = 95,  // int: byte stride for SPIRV sampler descriptor heap
 
         // Internal
         ArchiveType = 96,
@@ -1080,11 +1082,11 @@ typedef uint32_t SlangSizeT;
         TrackLiveness = 104,
         LoopInversion = 105, // bool, enable loop inversion optimization
 
-        ParameterBlocksUseRegisterSpaces = 106, // Deprecated; value must never be reused
-        LanguageVersion = 107,                  // intValue0: SlangLanguageVersion
-        TypeConformance = 108, // stringValue0: type conformance to link; format:
-                               // "<TypeName>:<IInterfaceName>[=<sequentialId>]",
-                               // e.g. "Impl:IFoo=3" or "Impl:IFoo".
+        ParameterBlocksUseRegisterSpaces = 106,  // Deprecated; value must never be reused
+        LanguageVersion = 107,                   // intValue0: SlangLanguageVersion
+        TypeConformance = 108,                   // stringValue0: type conformance to link; format:
+                                                 // "<TypeName>:<IInterfaceName>[=<sequentialId>]",
+                                                 // e.g. "Impl:IFoo=3" or "Impl:IFoo".
         EnableExperimentalDynamicDispatch = 109, // bool, experimental
         EmitReflectionJSON = 110,                // bool
 
