@@ -862,28 +862,28 @@ typedef uint32_t SlangSizeT;
     enum SlangMemoryScope : SlangMemoryScopeIntegral
     {
         SLANG_MEMORY_SCOPE_CROSS_DEVICE = 0,
-        SLANG_MEMORY_SCOPE_DEVICE       = 1,
-        SLANG_MEMORY_SCOPE_WORKGROUP    = 2,
-        SLANG_MEMORY_SCOPE_SUBGROUP     = 3,
-        SLANG_MEMORY_SCOPE_INVOCATION   = 4,
+        SLANG_MEMORY_SCOPE_DEVICE = 1,
+        SLANG_MEMORY_SCOPE_WORKGROUP = 2,
+        SLANG_MEMORY_SCOPE_SUBGROUP = 3,
+        SLANG_MEMORY_SCOPE_INVOCATION = 4,
         SLANG_MEMORY_SCOPE_QUEUE_FAMILY = 5,
-        SLANG_MEMORY_SCOPE_SHADER_CALL  = 6,
+        SLANG_MEMORY_SCOPE_SHADER_CALL = 6,
     };
 
 #ifdef __cplusplus
-namespace slang
-{
-enum MemoryScope : SlangMemoryScopeIntegral
-{
-    CrossDevice = SLANG_MEMORY_SCOPE_CROSS_DEVICE,
-    Device      = SLANG_MEMORY_SCOPE_DEVICE,
-    Workgroup   = SLANG_MEMORY_SCOPE_WORKGROUP,
-    Subgroup    = SLANG_MEMORY_SCOPE_SUBGROUP,
-    Invocation  = SLANG_MEMORY_SCOPE_INVOCATION,
-    QueueFamily = SLANG_MEMORY_SCOPE_QUEUE_FAMILY,
-    ShaderCall  = SLANG_MEMORY_SCOPE_SHADER_CALL,
-};
-} // namespace slang
+    namespace slang
+    {
+    enum MemoryScope : SlangMemoryScopeIntegral
+    {
+        CrossDevice = SLANG_MEMORY_SCOPE_CROSS_DEVICE,
+        Device = SLANG_MEMORY_SCOPE_DEVICE,
+        Workgroup = SLANG_MEMORY_SCOPE_WORKGROUP,
+        Subgroup = SLANG_MEMORY_SCOPE_SUBGROUP,
+        Invocation = SLANG_MEMORY_SCOPE_INVOCATION,
+        QueueFamily = SLANG_MEMORY_SCOPE_QUEUE_FAMILY,
+        ShaderCall = SLANG_MEMORY_SCOPE_SHADER_CALL,
+    };
+    } // namespace slang
 #endif
 
     typedef SlangUInt32 SlangCooperativeMatrixUseIntegral;

@@ -222,8 +222,8 @@ static void _insertOrUpdateCooperativeVectorType(
         }
     }
     slang::CooperativeVectorType newEntry;
-    newEntry.componentType     = componentType;
-    newEntry.maxSize           = maxSize;
+    newEntry.componentType = componentType;
+    newEntry.maxSize = maxSize;
     newEntry.usedForTrainingOp = (SlangBool)usedForTrainingOp;
     list.add(newEntry);
 }
@@ -240,23 +240,21 @@ static void _insertIfNotPresent(List<T>& list, const T& value)
     list.add(value);
 }
 
-static void _collectCoopMatrixTypeNode(
-    IRCoopMatrixType* matType,
-    ArtifactPostEmitMetadata& out)
+static void _collectCoopMatrixTypeNode(IRCoopMatrixType* matType, ArtifactPostEmitMetadata& out)
 {
     if (!matType)
         return;
     slang::CooperativeMatrixType entry;
     entry.componentType = _getScalarTypeFromIRType(matType->getElementType());
-    entry.scope         = _getScopeFromIRLit(matType->getScope());
-    auto rowLit         = as<IRIntLit>(matType->getRowCount());
-    auto colLit         = as<IRIntLit>(matType->getColumnCount());
-    auto useLit         = as<IRIntLit>(matType->getMatrixUse());
+    entry.scope = _getScopeFromIRLit(matType->getScope());
+    auto rowLit = as<IRIntLit>(matType->getRowCount());
+    auto colLit = as<IRIntLit>(matType->getColumnCount());
+    auto useLit = as<IRIntLit>(matType->getMatrixUse());
     if (!rowLit || !colLit || !useLit)
         return;
-    entry.rowCount    = (uint32_t)rowLit->getValue();
+    entry.rowCount = (uint32_t)rowLit->getValue();
     entry.columnCount = (uint32_t)colLit->getValue();
-    entry.use         = (SlangCooperativeMatrixUse)useLit->getValue();
+    entry.use = (SlangCooperativeMatrixUse)useLit->getValue();
     _insertIfNotPresent(out.m_cooperativeMatrixTypes, entry);
 }
 
@@ -280,23 +278,23 @@ static void _collectFromCoopMatMulAdd(IRInst* inst, ArtifactPostEmitMetadata& ou
     _collectCoopMatrixTypeNode(rType, out);
 
     // Collect combination
-    auto aRowLit     = as<IRIntLit>(aType->getRowCount());
-    auto aColLit     = as<IRIntLit>(aType->getColumnCount());
-    auto bColLit     = as<IRIntLit>(bType->getColumnCount());
+    auto aRowLit = as<IRIntLit>(aType->getRowCount());
+    auto aColLit = as<IRIntLit>(aType->getColumnCount());
+    auto bColLit = as<IRIntLit>(bType->getColumnCount());
     auto saturateLit = as<IRBoolLit>(mulAdd->getSaturatingAccumulation());
     if (!aRowLit || !aColLit || !bColLit)
         return;
 
     slang::CooperativeMatrixCombination combo;
-    combo.m                   = (uint32_t)aRowLit->getValue();
-    combo.k                   = (uint32_t)aColLit->getValue();
-    combo.n                   = (uint32_t)bColLit->getValue();
-    combo.componentTypeA      = _getScalarTypeFromIRType(aType->getElementType());
-    combo.componentTypeB      = _getScalarTypeFromIRType(bType->getElementType());
-    combo.componentTypeC      = _getScalarTypeFromIRType(cType->getElementType());
+    combo.m = (uint32_t)aRowLit->getValue();
+    combo.k = (uint32_t)aColLit->getValue();
+    combo.n = (uint32_t)bColLit->getValue();
+    combo.componentTypeA = _getScalarTypeFromIRType(aType->getElementType());
+    combo.componentTypeB = _getScalarTypeFromIRType(bType->getElementType());
+    combo.componentTypeC = _getScalarTypeFromIRType(cType->getElementType());
     combo.componentTypeResult = _getScalarTypeFromIRType(rType->getElementType());
-    combo.saturate            = saturateLit ? (SlangBool)saturateLit->getValue() : false;
-    combo.scope               = _getScopeFromIRLit(aType->getScope());
+    combo.saturate = saturateLit ? (SlangBool)saturateLit->getValue() : false;
+    combo.scope = _getScopeFromIRLit(aType->getScope());
 
     _insertIfNotPresent(out.m_cooperativeMatrixCombinations, combo);
 }
@@ -307,7 +305,7 @@ static void _collectFromCoopVecMatMulAdd(IRInst* inst, ArtifactPostEmitMetadata&
     if (!mulAdd)
         return;
 
-    auto inputVecType  = as<IRCoopVectorType>(mulAdd->getInput()->getDataType());
+    auto inputVecType = as<IRCoopVectorType>(mulAdd->getInput()->getDataType());
     auto resultVecType = as<IRCoopVectorType>(inst->getDataType());
     if (!inputVecType || !resultVecType)
         return;
@@ -316,33 +314,33 @@ static void _collectFromCoopVecMatMulAdd(IRInst* inst, ArtifactPostEmitMetadata&
     combo.inputType = _getScalarTypeFromIRType(inputVecType->getElementType());
     combo.inputInterpretation =
         _getCooperativeVectorInterpretation(mulAdd->getInputInterpretation());
-    auto packLit             = as<IRIntLit>(mulAdd->getInputInterpretationPackingFactor());
+    auto packLit = as<IRIntLit>(mulAdd->getInputInterpretationPackingFactor());
     combo.inputPackingFactor = packLit ? (uint32_t)packLit->getValue() : 1;
     combo.matrixInterpretation =
         _getCooperativeVectorInterpretation(mulAdd->getMatrixInterpretation());
-    auto biasOp          = mulAdd->getBiasInterpretation();
+    auto biasOp = mulAdd->getBiasInterpretation();
     combo.biasInterpretation =
         biasOp ? _getCooperativeVectorInterpretation(biasOp) : SLANG_SCALAR_TYPE_NONE;
-    combo.resultType   = _getScalarTypeFromIRType(resultVecType->getElementType());
-    auto layoutLit     = as<IRIntLit>(mulAdd->getMemoryLayout());
+    combo.resultType = _getScalarTypeFromIRType(resultVecType->getElementType());
+    auto layoutLit = as<IRIntLit>(mulAdd->getMemoryLayout());
     combo.memoryLayout = layoutLit ? (SlangCooperativeVectorMatrixLayout)layoutLit->getValue()
                                    : SLANG_COOPERATIVE_VECTOR_MATRIX_LAYOUT_ROW_MAJOR;
-    auto transposeLit  = as<IRBoolLit>(mulAdd->getTranspose());
-    combo.transpose    = transposeLit ? (SlangBool)transposeLit->getValue() : false;
+    auto transposeLit = as<IRBoolLit>(mulAdd->getTranspose());
+    combo.transpose = transposeLit ? (SlangBool)transposeLit->getValue() : false;
 
     _insertIfNotPresent(out.m_cooperativeVectorCombinations, combo);
 
     // Also update vector types for input and result
-    auto     inputSizeLit = as<IRIntLit>(inputVecType->getElementCount());
-    uint32_t inputSize    = inputSizeLit ? (uint32_t)inputSizeLit->getValue() : 0;
+    auto inputSizeLit = as<IRIntLit>(inputVecType->getElementCount());
+    uint32_t inputSize = inputSizeLit ? (uint32_t)inputSizeLit->getValue() : 0;
     _insertOrUpdateCooperativeVectorType(
         out.m_cooperativeVectorTypes,
         combo.inputType,
         inputSize,
         false);
 
-    auto     resultSizeLit = as<IRIntLit>(resultVecType->getElementCount());
-    uint32_t resultSize    = resultSizeLit ? (uint32_t)resultSizeLit->getValue() : 0;
+    auto resultSizeLit = as<IRIntLit>(resultVecType->getElementCount());
+    uint32_t resultSize = resultSizeLit ? (uint32_t)resultSizeLit->getValue() : 0;
     _insertOrUpdateCooperativeVectorType(
         out.m_cooperativeVectorTypes,
         combo.resultType,
@@ -371,8 +369,8 @@ static void _collectFromCoopVecTrainingUsage(IRInst* inst, ArtifactPostEmitMetad
         if (!valVecType)
             return;
         SlangScalarType elemType = _getScalarTypeFromIRType(valVecType->getElementType());
-        auto            sizeLit  = as<IRIntLit>(valVecType->getElementCount());
-        uint32_t        maxSize  = sizeLit ? (uint32_t)sizeLit->getValue() : 0;
+        auto sizeLit = as<IRIntLit>(valVecType->getElementCount());
+        uint32_t maxSize = sizeLit ? (uint32_t)sizeLit->getValue() : 0;
         _insertOrUpdateCooperativeVectorType(out.m_cooperativeVectorTypes, elemType, maxSize, true);
     }
 }

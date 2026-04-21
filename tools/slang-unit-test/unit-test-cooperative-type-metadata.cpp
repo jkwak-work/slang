@@ -21,13 +21,13 @@ static ComPtr<slang::IMetadata> _compileAndGetMetadata(
         return {};
 
     slang::TargetDesc targetDesc = {};
-    targetDesc.format             = target;
+    targetDesc.format = target;
     if (profileStr && target == SLANG_SPIRV)
         targetDesc.profile = globalSession->findProfile(profileStr);
 
     slang::SessionDesc sessionDesc = {};
-    sessionDesc.targetCount        = 1;
-    sessionDesc.targets            = &targetDesc;
+    sessionDesc.targetCount = 1;
+    sessionDesc.targets = &targetDesc;
 
     ComPtr<slang::ISession> session;
     if (globalSession->createSession(sessionDesc, session.writeRef()) != SLANG_OK)
@@ -202,8 +202,7 @@ void computeMain()
 
 SLANG_UNIT_TEST(cooperativeMetadata_emptyShader)
 {
-    auto metadata =
-        _compileAndGetMetadata(kEmptyShaderSource, "computeMain", SLANG_STAGE_COMPUTE);
+    auto metadata = _compileAndGetMetadata(kEmptyShaderSource, "computeMain", SLANG_STAGE_COMPUTE);
     SLANG_CHECK(metadata != nullptr);
 
     auto* coopMeta = static_cast<slang::ICooperativeTypesMetadata*>(
@@ -217,8 +216,7 @@ SLANG_UNIT_TEST(cooperativeMetadata_emptyShader)
 
 SLANG_UNIT_TEST(cooperativeMetadata_castAs)
 {
-    auto metadata =
-        _compileAndGetMetadata(kEmptyShaderSource, "computeMain", SLANG_STAGE_COMPUTE);
+    auto metadata = _compileAndGetMetadata(kEmptyShaderSource, "computeMain", SLANG_STAGE_COMPUTE);
     SLANG_CHECK(metadata != nullptr);
     if (!metadata)
         return;
@@ -388,8 +386,7 @@ SLANG_UNIT_TEST(cooperativeMetadata_coopVecTraining_reduceSum)
 
 SLANG_UNIT_TEST(cooperativeMetadata_outOfBoundsReturnsError)
 {
-    auto metadata =
-        _compileAndGetMetadata(kEmptyShaderSource, "computeMain", SLANG_STAGE_COMPUTE);
+    auto metadata = _compileAndGetMetadata(kEmptyShaderSource, "computeMain", SLANG_STAGE_COMPUTE);
     SLANG_CHECK(metadata != nullptr);
     if (!metadata)
         return;
