@@ -325,9 +325,8 @@ struct ISlangSharedLibraryLoaderProbe : ISlangSharedLibraryLoader
         lastSlot = 2;
         return 1;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL loadSharedLibrary(
-        const char*,
-        ISlangSharedLibrary**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL loadSharedLibrary(const char*, ISlangSharedLibrary**)
+        SLANG_OVERRIDE
     {
         lastSlot = 3;
         return SLANG_OK;
@@ -374,8 +373,8 @@ struct ISlangFileSystemExtProbe : ISlangFileSystemExt
         lastSlot = 4;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getFileUniqueIdentity(const char*, ISlangBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getFileUniqueIdentity(const char*, ISlangBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 5;
         return SLANG_OK;
@@ -391,7 +390,8 @@ struct ISlangFileSystemExtProbe : ISlangFileSystemExt
         lastSlot = 7;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL getPath(PathKind, const char*, ISlangBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getPath(PathKind, const char*, ISlangBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 8;
         return SLANG_OK;
@@ -462,8 +462,8 @@ struct ISlangMutableFileSystemProbe : ISlangMutableFileSystem
         lastSlot = 4;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getFileUniqueIdentity(const char*, ISlangBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getFileUniqueIdentity(const char*, ISlangBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 5;
         return SLANG_OK;
@@ -479,7 +479,8 @@ struct ISlangMutableFileSystemProbe : ISlangMutableFileSystem
         lastSlot = 7;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL getPath(PathKind, const char*, ISlangBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getPath(PathKind, const char*, ISlangBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 8;
         return SLANG_OK;
@@ -676,7 +677,8 @@ struct IGlobalSessionProbe : IGlobalSession
         lastSlot = 2;
         return 1;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL createSession(SessionDesc const&, ISession**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL createSession(SessionDesc const&, ISession**)
+        SLANG_OVERRIDE
     {
         lastSlot = 3;
         return SLANG_OK;
@@ -718,7 +720,8 @@ struct IGlobalSessionProbe : IGlobalSession
         lastSlot = 10;
         return SLANG_PASS_THROUGH_NONE;
     }
-    SLANG_NO_THROW void SLANG_MCALL setLanguagePrelude(SlangSourceLanguage, const char*) SLANG_OVERRIDE
+    SLANG_NO_THROW void SLANG_MCALL setLanguagePrelude(SlangSourceLanguage, const char*)
+        SLANG_OVERRIDE
     {
         lastSlot = 11;
     }
@@ -736,7 +739,8 @@ struct IGlobalSessionProbe : IGlobalSession
     {
         lastSlot = 14;
     }
-    SLANG_NO_THROW void SLANG_MCALL setSharedLibraryLoader(ISlangSharedLibraryLoader*) SLANG_OVERRIDE
+    SLANG_NO_THROW void SLANG_MCALL setSharedLibraryLoader(ISlangSharedLibraryLoader*)
+        SLANG_OVERRIDE
     {
         lastSlot = 15;
     }
@@ -745,7 +749,8 @@ struct IGlobalSessionProbe : IGlobalSession
         lastSlot = 16;
         return nullptr;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL checkCompileTargetSupport(SlangCompileTarget) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL checkCompileTargetSupport(SlangCompileTarget)
+        SLANG_OVERRIDE
     {
         lastSlot = 17;
         return SLANG_OK;
@@ -776,9 +781,10 @@ struct IGlobalSessionProbe : IGlobalSession
         lastSlot = 22;
         return SLANG_CAPABILITY_UNKNOWN;
     }
-    SLANG_NO_THROW void SLANG_MCALL
-    setDownstreamCompilerForTransition(SlangCompileTarget, SlangCompileTarget, SlangPassThrough)
-        SLANG_OVERRIDE
+    SLANG_NO_THROW void SLANG_MCALL setDownstreamCompilerForTransition(
+        SlangCompileTarget,
+        SlangCompileTarget,
+        SlangPassThrough) SLANG_OVERRIDE
     {
         lastSlot = 23;
     }
@@ -798,8 +804,7 @@ struct IGlobalSessionProbe : IGlobalSession
         return SLANG_OK;
     }
     SLANG_NO_THROW SlangResult SLANG_MCALL
-    parseCommandLineArguments(int, const char* const*, SessionDesc*, ISlangUnknown**)
-        SLANG_OVERRIDE
+    parseCommandLineArguments(int, const char* const*, SessionDesc*, ISlangUnknown**) SLANG_OVERRIDE
     {
         lastSlot = 27;
         return SLANG_OK;
@@ -816,8 +821,8 @@ struct IGlobalSessionProbe : IGlobalSession
         lastSlot = 29;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    loadBuiltinModule(BuiltinModuleName, const void*, size_t) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL loadBuiltinModule(BuiltinModuleName, const void*, size_t)
+        SLANG_OVERRIDE
     {
         lastSlot = 30;
         return SLANG_OK;
@@ -993,8 +998,8 @@ struct IComponentTypeProbe : IComponentType
         lastSlot = 5;
         return 0;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getEntryPointCode(SlangInt, SlangInt, IBlob**, IBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getEntryPointCode(SlangInt, SlangInt, IBlob**, IBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 6;
         return SLANG_OK;
@@ -1044,8 +1049,8 @@ struct IComponentTypeProbe : IComponentType
         lastSlot = 14;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getTargetMetadata(SlangInt, IMetadata**, IBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getTargetMetadata(SlangInt, IMetadata**, IBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 15;
         return SLANG_OK;
@@ -1111,8 +1116,8 @@ struct IEntryPointProbe : IEntryPoint
         lastSlot = 5;
         return 0;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getEntryPointCode(SlangInt, SlangInt, IBlob**, IBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getEntryPointCode(SlangInt, SlangInt, IBlob**, IBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 6;
         return SLANG_OK;
@@ -1162,8 +1167,8 @@ struct IEntryPointProbe : IEntryPoint
         lastSlot = 14;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getTargetMetadata(SlangInt, IMetadata**, IBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getTargetMetadata(SlangInt, IMetadata**, IBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 15;
         return SLANG_OK;
@@ -1315,16 +1320,18 @@ struct ISessionProbe : ISession
         lastSlot = 11;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getTypeConformanceWitnessMangledName(TypeReflection*, TypeReflection*, ISlangBlob**)
-        SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getTypeConformanceWitnessMangledName(
+        TypeReflection*,
+        TypeReflection*,
+        ISlangBlob**) SLANG_OVERRIDE
     {
         lastSlot = 12;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getTypeConformanceWitnessSequentialID(TypeReflection*, TypeReflection*, uint32_t*)
-        SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getTypeConformanceWitnessSequentialID(
+        TypeReflection*,
+        TypeReflection*,
+        uint32_t*) SLANG_OVERRIDE
     {
         lastSlot = 13;
         return SLANG_OK;
@@ -1443,8 +1450,8 @@ struct IModuleProbe : IModule
         lastSlot = 5;
         return 0;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getEntryPointCode(SlangInt, SlangInt, IBlob**, IBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getEntryPointCode(SlangInt, SlangInt, IBlob**, IBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 6;
         return SLANG_OK;
@@ -1494,8 +1501,8 @@ struct IModuleProbe : IModule
         lastSlot = 14;
         return SLANG_OK;
     }
-    SLANG_NO_THROW SlangResult SLANG_MCALL
-    getTargetMetadata(SlangInt, IMetadata**, IBlob**) SLANG_OVERRIDE
+    SLANG_NO_THROW SlangResult SLANG_MCALL getTargetMetadata(SlangInt, IMetadata**, IBlob**)
+        SLANG_OVERRIDE
     {
         lastSlot = 15;
         return SLANG_OK;
