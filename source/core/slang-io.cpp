@@ -45,12 +45,46 @@
 namespace Slang
 {
 
+#if SLANG_WINDOWS_FAMILY
+static bool _isWSLMountedDrivePath(const UnownedStringSlice& path)
+{
+    return path.getLength() >= 6 && Path::isDelimiter(path[0]) && path[1] == 'm' &&
+           path[2] == 'n' && path[3] == 't' && Path::isDelimiter(path[4]) &&
+           CharUtil::isAlpha(path[5]) && (path.getLength() == 6 || Path::isDelimiter(path[6]));
+}
+
+static String _getPlatformPath(const String& path)
+{
+    const UnownedStringSlice slice = path.getUnownedSlice();
+    if (!_isWSLMountedDrivePath(slice))
+    {
+        return path;
+    }
+
+    StringBuilder builder;
+    builder.appendChar(CharUtil::toUpper(slice[5]));
+    builder.append(":\\");
+
+    if (slice.getLength() > 6)
+    {
+        for (Index i = 7; i < slice.getLength(); ++i)
+        {
+            const char c = slice[i];
+            builder.appendChar(Path::isDelimiter(c) ? '\\' : c);
+        }
+    }
+
+    return builder.produceString();
+}
+#endif
+
 /* static */ SlangResult File::remove(const String& fileName)
 {
 #ifdef _WIN32
 
     // https://docs.microsoft.com/en-us/windows/desktop/api/fileapi/nf-fileapi-deletefilew
-    if (DeleteFileW(fileName.toWString()))
+    String platformFileName = _getPlatformPath(fileName);
+    if (DeleteFileW(platformFileName.toWString()))
     {
         return SLANG_OK;
     }
@@ -187,7 +221,8 @@ bool File::exists(const String& fileName)
 {
 #ifdef _WIN32
     struct _stat64 statVar;
-    return ::_wstat64(((String)fileName).toWString(), &statVar) != -1;
+    String platformFileName = _getPlatformPath(fileName);
+    return ::_wstat64(platformFileName.toWString(), &statVar) != -1;
 #else
     struct stat statVar;
     return ::stat(fileName.getBuffer(), &statVar) == 0;
@@ -478,8 +513,15 @@ UnownedStringSlice Path::getFirstElement(const UnownedStringSlice& in)
         return SLANG_FAIL;
     }
 
+#if SLANG_WINDOWS_FAMILY
+    String platformPath = _getPlatformPath(String(path));
+    const UnownedStringSlice pathToSimplify = platformPath.getUnownedSlice();
+#else
+    const UnownedStringSlice pathToSimplify = path;
+#endif
+
     List<UnownedStringSlice> splitPath;
-    split(UnownedStringSlice(path), splitPath);
+    split(pathToSimplify, splitPath);
 
     simplify(splitPath);
 
@@ -564,8 +606,15 @@ UnownedStringSlice Path::getFirstElement(const UnownedStringSlice& in)
 
 /* static */ String Path::simplify(const UnownedStringSlice& path)
 {
+#if SLANG_WINDOWS_FAMILY
+    String platformPath = _getPlatformPath(String(path));
+    const UnownedStringSlice pathToSimplify = platformPath.getUnownedSlice();
+#else
+    const UnownedStringSlice pathToSimplify = path;
+#endif
+
     List<UnownedStringSlice> splitPath;
-    split(path, splitPath);
+    split(pathToSimplify, splitPath);
     simplify(splitPath);
 
     // Reconstruct the string
@@ -577,7 +626,8 @@ UnownedStringSlice Path::getFirstElement(const UnownedStringSlice& in)
 bool Path::createDirectory(const String& path)
 {
 #if defined(_WIN32)
-    return _wmkdir(path.toWString()) == 0;
+    String platformPath = _getPlatformPath(path);
+    return _wmkdir(platformPath.toWString()) == 0;
 #else
     return mkdir(path.getBuffer(), 0777) == 0;
 #endif
@@ -643,7 +693,8 @@ bool Path::createDirectoryRecursive(const String& path)
 #ifdef _WIN32
     // https://msdn.microsoft.com/en-us/library/14h5k7ff.aspx
     struct _stat64 statVar;
-    if (::_wstat64(String(path).toWString(), &statVar) == 0)
+    String platformPath = _getPlatformPath(path);
+    if (::_wstat64(platformPath.toWString(), &statVar) == 0)
     {
         if (statVar.st_mode & _S_IFDIR)
         {
@@ -684,8 +735,10 @@ bool Path::createDirectoryRecursive(const String& path)
 /* static */ SlangResult Path::getCanonical(const String& path, String& canonicalPathOut)
 {
 #if defined(_WIN32)
+    String platformPath = _getPlatformPath(path);
+
     // https://msdn.microsoft.com/en-us/library/506720ff.aspx
-    wchar_t* absPath = ::_wfullpath(nullptr, path.toWString(), 0);
+    wchar_t* absPath = ::_wfullpath(nullptr, platformPath.toWString(), 0);
     if (!absPath)
     {
         return SLANG_FAIL;
@@ -746,6 +799,11 @@ String Path::getCurrentPath()
 
 String Path::getRelativePath(String base, String path)
 {
+#if SLANG_WINDOWS_FAMILY
+    base = _getPlatformPath(base);
+    path = _getPlatformPath(path);
+#endif
+
     std::filesystem::path p1(base.getBuffer());
     std::filesystem::path p2(path.getBuffer());
     std::error_code ec;
@@ -758,10 +816,11 @@ String Path::getRelativePath(String base, String path)
 SlangResult Path::remove(const String& path)
 {
 #ifdef _WIN32
+    String platformPath = _getPlatformPath(path);
     // Need to determine if its a file or directory
 
     SlangPathType pathType;
-    SLANG_RETURN_ON_FAIL(getPathType(path, &pathType));
+    SLANG_RETURN_ON_FAIL(getPathType(platformPath, &pathType));
 
 
     switch (pathType)
@@ -769,7 +828,7 @@ SlangResult Path::remove(const String& path)
     case SLANG_PATH_TYPE_FILE:
         {
             // https://docs.microsoft.com/en-us/windows/desktop/api/fileapi/nf-fileapi-deletefilew
-            if (DeleteFileW(path.toWString()))
+            if (DeleteFileW(platformPath.toWString()))
             {
                 return SLANG_OK;
             }
@@ -778,7 +837,7 @@ SlangResult Path::remove(const String& path)
     case SLANG_PATH_TYPE_DIRECTORY:
         {
             // https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-removedirectoryw
-            if (RemoveDirectoryW(path.toWString()))
+            if (RemoveDirectoryW(platformPath.toWString()))
             {
                 return SLANG_OK;
             }
@@ -813,7 +872,8 @@ SlangResult Path::remove(const String& path)
     // https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shfileoperationw
     // Note: the fromPath requires a double-null-terminated string.
     // Convert to wide string first, then manually create double-null-terminated buffer
-    auto widePath = path.toWString();
+    String platformPath = _getPlatformPath(path);
+    auto widePath = platformPath.toWString();
     Index widePathLen = wcslen(widePath);
     wchar_t* doubleNullPath = (wchar_t*)_alloca((widePathLen + 2) * sizeof(wchar_t));
     wcscpy_s(doubleNullPath, widePathLen + 2, widePath);
@@ -867,6 +927,7 @@ SlangResult Path::remove(const String& path)
 {
     pattern = pattern ? pattern : "*";
     String searchPath = Path::combine(directoryPath, pattern);
+    searchPath = _getPlatformPath(searchPath);
 
     WIN32_FIND_DATAW fileData;
 
@@ -1108,9 +1169,14 @@ static String _getExecutablePath()
 
 SlangResult File::readAllText(const Slang::String& fileName, String& outText)
 {
+#if SLANG_WINDOWS_FAMILY
+    String platformFileName = _getPlatformPath(fileName);
+#else
+    const String& platformFileName = fileName;
+#endif
     RefPtr<FileStream> stream(new FileStream);
     SLANG_RETURN_ON_FAIL(
-        stream->init(fileName, FileMode::Open, FileAccess::Read, FileShare::ReadWrite));
+        stream->init(platformFileName, FileMode::Open, FileAccess::Read, FileShare::ReadWrite));
 
     StreamReader reader;
     SLANG_RETURN_ON_FAIL(reader.init(stream));
@@ -1121,8 +1187,14 @@ SlangResult File::readAllText(const Slang::String& fileName, String& outText)
 
 SlangResult File::readAllBytes(const Slang::String& path, Slang::List<unsigned char>& out)
 {
+#if SLANG_WINDOWS_FAMILY
+    String platformPath = _getPlatformPath(path);
+#else
+    const String& platformPath = path;
+#endif
     FileStream stream;
-    SLANG_RETURN_ON_FAIL(stream.init(path, FileMode::Open, FileAccess::Read, FileShare::ReadWrite));
+    SLANG_RETURN_ON_FAIL(
+        stream.init(platformPath, FileMode::Open, FileAccess::Read, FileShare::ReadWrite));
 
     const Int64 start = stream.getPosition();
     stream.seek(SeekOrigin::End, 0);
@@ -1150,8 +1222,14 @@ SlangResult File::readAllBytes(const Slang::String& path, Slang::List<unsigned c
 
 SlangResult File::readAllBytes(const String& path, ScopedAllocation& out)
 {
+#if SLANG_WINDOWS_FAMILY
+    String platformPath = _getPlatformPath(path);
+#else
+    const String& platformPath = path;
+#endif
     FileStream stream;
-    SLANG_RETURN_ON_FAIL(stream.init(path, FileMode::Open, FileAccess::Read, FileShare::ReadWrite));
+    SLANG_RETURN_ON_FAIL(
+        stream.init(platformPath, FileMode::Open, FileAccess::Read, FileShare::ReadWrite));
 
     const Int64 start = stream.getPosition();
     stream.seek(SeekOrigin::End, 0);
@@ -1183,17 +1261,27 @@ SlangResult File::readAllBytes(const String& path, ScopedAllocation& out)
 
 SlangResult File::writeAllBytes(const String& path, const void* data, size_t size)
 {
+#if SLANG_WINDOWS_FAMILY
+    String platformPath = _getPlatformPath(path);
+#else
+    const String& platformPath = path;
+#endif
     FileStream stream;
     SLANG_RETURN_ON_FAIL(
-        stream.init(path, FileMode::Create, FileAccess::Write, FileShare::ReadWrite));
+        stream.init(platformPath, FileMode::Create, FileAccess::Write, FileShare::ReadWrite));
     SLANG_RETURN_ON_FAIL(stream.write(data, size));
     return SLANG_OK;
 }
 
 SlangResult File::writeAllText(const Slang::String& fileName, const Slang::String& text)
 {
+#if SLANG_WINDOWS_FAMILY
+    String platformFileName = _getPlatformPath(fileName);
+#else
+    const String& platformFileName = fileName;
+#endif
     RefPtr<FileStream> stream = new FileStream;
-    SLANG_RETURN_ON_FAIL(stream->init(fileName, FileMode::Create));
+    SLANG_RETURN_ON_FAIL(stream->init(platformFileName, FileMode::Create));
 
     StreamWriter writer;
     SLANG_RETURN_ON_FAIL(writer.init(stream));
@@ -1215,8 +1303,13 @@ SlangResult File::writeAllTextIfChanged(const String& fileName, UnownedStringSli
 
 /* static */ SlangResult File::writeNativeText(const String& path, const void* data, size_t size)
 {
+#if SLANG_WINDOWS_FAMILY
+    String platformPath = _getPlatformPath(path);
+#else
+    const String& platformPath = path;
+#endif
     FILE* file = nullptr;
-    if (fopen_s(&file, path.getBuffer(), "w") != 0 || !file)
+    if (fopen_s(&file, platformPath.getBuffer(), "w") != 0 || !file)
     {
         return SLANG_FAIL;
     }
@@ -1315,8 +1408,9 @@ URI URI::fromString(UnownedStringSlice uriString)
 SlangResult LockFile::open(const String& fileName)
 {
 #if SLANG_WINDOWS_FAMILY
+    String platformFileName = _getPlatformPath(fileName);
     m_fileHandle = ::CreateFileW(
-        fileName.toWString(),
+        platformFileName.toWString(),
         GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         NULL,

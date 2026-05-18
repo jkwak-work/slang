@@ -21,6 +21,46 @@ SLANG_UNIT_TEST(path)
         String parentPath2 = Path::getParentDirectory(path);
         SLANG_CHECK(parentPath == parentPath2);
     }
+
+    {
+        SLANG_CHECK(Path::isAbsolute("/mnt/c/projects"));
+        SLANG_CHECK(Path::simplify("/mnt/c/projects/../shader.slang") == "C:/shader.slang");
+    }
+
+    {
+        String currentPath = Path::getCurrentPath();
+        UnownedStringSlice currentPathSlice = currentPath.getUnownedSlice();
+        if (currentPath.getLength() >= 3 && Path::isDriveSpecification(currentPathSlice.head(2)) &&
+            Path::isDelimiter(currentPath[2]))
+        {
+            StringBuilder wslPath;
+            char driveLetter = currentPath[0];
+            if (driveLetter >= 'A' && driveLetter <= 'Z')
+            {
+                driveLetter = char(driveLetter - 'A' + 'a');
+            }
+
+            wslPath.append("/mnt/");
+            wslPath.appendChar(driveLetter);
+            for (Index i = 2; i < currentPath.getLength(); ++i)
+            {
+                const char c = currentPath[i];
+                wslPath.appendChar(Path::isDelimiter(c) ? '/' : c);
+            }
+
+            const String wslPathString = wslPath.produceString();
+            String canonicalPath;
+            SlangResult res = Path::getCanonical(wslPathString, canonicalPath);
+            SLANG_CHECK(SLANG_SUCCEEDED(res));
+            SLANG_CHECK(canonicalPath.equals(currentPath, false));
+            SLANG_CHECK(File::exists(wslPathString));
+
+            SlangPathType pathType;
+            res = Path::getPathType(wslPathString, &pathType);
+            SLANG_CHECK(SLANG_SUCCEEDED(res));
+            SLANG_CHECK(pathType == SLANG_PATH_TYPE_DIRECTORY);
+        }
+    }
 #endif
     // Test the paths
     {
