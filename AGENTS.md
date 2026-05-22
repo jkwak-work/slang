@@ -28,6 +28,22 @@ Key directories:
   using test servers.
 - `cmake --preset vs2026`: preferred Windows configuration preset for Visual Studio 2026.
 
+## Include Path Conventions
+
+Never use `../` in `#include` directives. The `source/` directory is on the compiler include
+path (exposed by the `core` CMake target), so cross-module headers are always reachable without
+relative traversal:
+
+```cpp
+// Correct
+#include "core/slang-string.h"
+#include "compiler-core/slang-source-loc.h"
+
+// Wrong
+#include "../core/slang-string.h"
+#include "../compiler-core/slang-source-loc.h"
+```
+
 ## Coding Style & Naming Conventions
 
 Formatting:
