@@ -12,14 +12,14 @@ The watch list is internal state managed by the surrounding workflow. It is read
 `STATE_DIR/watch-github.conf`; this document intentionally does not define that file format as a
 public interface.
 
-The watcher also discovers open issues in the current GitHub repository that are assigned to
-`@me`, have the `Copilot` label, and do not already have a linked or closing PR. For each new
-issue it creates `issue-N` with `extras/git-worktree-add.sh --issue N issue-N`, starts a tmux
-session named `issue-N`, and starts the selected agent in that worktree. The issue is added to watch
-state only after the agent starts successfully, so setup failures retry from issue discovery on the
-next poll. If an `issue-N` worktree already
-exists, discovery skips worktree creation; if an `issue-N` tmux session already exists from a
-partial setup, discovery resumes that session instead of starting over.
+The watcher also discovers open issues in the configured issue repository that are assigned to
+`@me`, have the `Copilot` label, and do not already have an open linked or closing PR. Closed
+linked PRs are ignored for discovery. For each new issue it creates `issue-N` with
+`extras/git-worktree-add.sh --issue N issue-N`, starts a tmux session named `issue-N`, and starts
+the selected agent in that worktree. The issue is added to watch state only after the agent starts
+successfully, so setup failures retry from issue discovery on the next poll. If an `issue-N`
+worktree already exists, discovery skips worktree creation; if an `issue-N` tmux session already
+exists from a partial setup, discovery resumes that session instead of starting over.
 
 For issue rows, the watcher treats the agent as idle when the captured pane screen repeats across
 polling checks. When the agent is idle, it compares the worktree HEAD with the target
@@ -32,7 +32,7 @@ new commit and there is no open PR for the branch on the target repository, it s
 
 ```mermaid
 flowchart TD
-    A[Poll assigned Copilot issues] --> B{Issue already watched or has PR?}
+    A[Poll assigned Copilot issues] --> B{Issue already watched or has open linked PR?}
     B -- yes --> Z[Skip]
     B -- no --> C[Create or reuse issue-N worktree]
     C --> D[Start or reuse issue-N tmux agent]

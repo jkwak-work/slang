@@ -838,16 +838,68 @@ worktree_head_matches_base() {
 
 fetch_copilot_issues() {
   local repo="$1"
+  local issues_file issue rc
 
-  "$GH_COMMAND" issue list \
+  issues_file="$(mktemp)"
+  if ! "$GH_COMMAND" issue list \
     --repo "$repo" \
     --assignee "@me" \
     --label "$COPILOT_LABEL" \
-    --search "-linked:pr" \
     --state open \
     --limit "$ISSUE_LIST_LIMIT" \
-    --json number,closedByPullRequestsReferences,url \
-    --jq '.[] | select((.closedByPullRequestsReferences // []) | length == 0) | .number'
+    --json number \
+    --jq '.[].number' >"$issues_file"; then
+    rm -f "$issues_file"
+    return 1
+  fi
+
+  while IFS= read -r issue; do
+    [[ -n "$issue" ]] || continue
+    issue_has_open_linked_pr "$repo" "$issue"
+    rc=$?
+    case "$rc" in
+      0)
+        ;;
+      1)
+        printf '%s\n' "$issue"
+        ;;
+      *)
+        log "failed to inspect linked PRs for $repo#$issue"
+        ;;
+    esac
+  done <"$issues_file"
+
+  rm -f "$issues_file"
+}
+
+issue_has_open_linked_pr() {
+  local repo="$1"
+  local issue="$2"
+  local timeline_file rc
+
+  timeline_file="$(mktemp)"
+  if ! "$GH_COMMAND" api --paginate \
+    "repos/$repo/issues/$issue/timeline?per_page=$COMMENT_PAGE_SIZE" >"$timeline_file"; then
+    rm -f "$timeline_file"
+    return 2
+  fi
+
+  jq -se '
+    def linked_issue: (.source.issue? // .subject? // {});
+    any(
+      .[][];
+      (linked_issue.pull_request? != null) and
+      (((linked_issue.state // "") | ascii_downcase) == "open")
+    )
+  ' "$timeline_file" >/dev/null
+  rc=$?
+  rm -f "$timeline_file"
+
+  case "$rc" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) return 2 ;;
+  esac
 }
 
 create_issue_worktree() {
