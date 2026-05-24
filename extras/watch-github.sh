@@ -5,14 +5,16 @@ set -u -o pipefail
 # starts or reuses a tmux Codex session rooted in the configured PR worktree and
 # sends the configured skill prompt to that session.
 
-default_gh_command() {
+default_host_command() {
+  local command_name="$1"
+
   if [[ -r /proc/version ]] && grep -qiE 'microsoft|wsl' /proc/version &&
-    command -v gh.exe >/dev/null 2>&1; then
-    printf 'gh.exe\n'
+    command -v "$command_name.exe" >/dev/null 2>&1; then
+    printf '%s.exe\n' "$command_name"
     return 0
   fi
 
-  printf 'gh\n'
+  printf '%s\n' "$command_name"
 }
 
 SCRIPT_NAME="$(basename "$0")"
@@ -25,7 +27,9 @@ WATCH_CI="${WATCH_CI:-true}"
 COMMENT_PAGE_SIZE="${COMMENT_PAGE_SIZE:-100}"
 CAPTURE_LINES="${CAPTURE_LINES:-250}"
 MATCH_TAIL_LINES="${MATCH_TAIL_LINES:-50}"
-GH_COMMAND="${GH_COMMAND:-$(default_gh_command)}"
+GH_COMMAND="${GH_COMMAND:-$(default_host_command gh)}"
+GIT_COMMAND="${GIT_COMMAND:-$(default_host_command git)}"
+DEFAULT_BRANCH="${DEFAULT_BRANCH:-}"
 CODEX_COMMAND="${CODEX_COMMAND:-codex}"
 CODEX_FLAGS="${CODEX_FLAGS:---dangerously-bypass-approvals-and-sandbox}"
 SKILL_PREFIX="${SKILL_PREFIX:-}"
@@ -61,7 +65,7 @@ usage() {
 Usage: $SCRIPT_NAME [--config FILE] [--once]
 
 Config format, one PR per line:
-  https://github.com/owner/repo/pull/PR_NUMBER /absolute/worktree/path [tmux-session] [skill]
+  https://github.com/owner/repo/pull/PR_NUMBER /absolute/worktree/path [tmux-session] [skill-prompt]
 
 The skill field is a bare skill name. The watcher adds the CLI-specific prefix
 when it sends the prompt ('$' for codex, '/' for claude).
@@ -76,6 +80,8 @@ Environment knobs:
   CI_BOOTSTRAP_MODE=prime     # first run records current CI failure state
   WATCH_CI=true
   GH_COMMAND="$GH_COMMAND"
+  GIT_COMMAND="$GIT_COMMAND"
+  DEFAULT_BRANCH=$DEFAULT_BRANCH  # override when origin/HEAD is unavailable
   SKILL_PREFIX=             # default: '$' for codex, '/' for claude
   CODEX_SKILL="$CODEX_SKILL"
   FORK_REPO_SKILL="$FORK_REPO_SKILL"
@@ -157,6 +163,58 @@ log() {
 
 need_command() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+require_repo_root() {
+  local cdup is_bare
+
+  if ! "$GIT_COMMAND" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    die "must be run from the root of a git worktree"
+  fi
+
+  cdup="$("$GIT_COMMAND" rev-parse --show-cdup)" ||
+    die "failed to determine git repository root"
+  [[ -z "$cdup" ]] || die "must be run from the root of a git worktree"
+
+  is_bare="$("$GIT_COMMAND" rev-parse --is-bare-repository)" ||
+    die "failed to determine whether the repository is bare"
+  [[ "$is_bare" == "false" ]] || die "must be run from a non-bare git worktree"
+
+  "$GIT_COMMAND" worktree list >/dev/null ||
+    die "must be run from a repository that supports git worktree"
+}
+
+resolve_default_branch() {
+  local remote_head
+
+  if [[ -n "$DEFAULT_BRANCH" ]]; then
+    printf '%s\n' "$DEFAULT_BRANCH"
+    return 0
+  fi
+
+  remote_head="$("$GIT_COMMAND" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  if [[ "$remote_head" == origin/* ]]; then
+    printf '%s\n' "${remote_head#origin/}"
+    return 0
+  fi
+  if [[ -n "$remote_head" ]]; then
+    printf '%s\n' "$remote_head"
+    return 0
+  fi
+
+  die "failed to determine default branch; set DEFAULT_BRANCH explicitly"
+}
+
+require_default_branch() {
+  local current_branch default_branch
+
+  current_branch="$("$GIT_COMMAND" branch --show-current)" ||
+    die "failed to determine current branch"
+  [[ -n "$current_branch" ]] || die "must be run from the default branch; HEAD is detached"
+
+  default_branch="$(resolve_default_branch)"
+  [[ "$current_branch" == "$default_branch" ]] ||
+    die "must be run from the default branch ($default_branch); current branch is $current_branch"
 }
 
 shell_quote() {
@@ -1247,6 +1305,7 @@ main() {
 
   print_startup_warning
   parse_args "$@"
+  need_command "$GIT_COMMAND"
   need_command "$GH_COMMAND"
   need_command jq
   need_command tmux
@@ -1259,6 +1318,8 @@ main() {
   need_command cut
   need_command "$CODEX_COMMAND"
 
+  require_repo_root
+  require_default_branch
   mkdir -p "$STATE_DIR"
   "$GH_COMMAND" auth status >/dev/null || die "$GH_COMMAND is not authenticated"
   trap finish_status_line EXIT
