@@ -5,6 +5,16 @@ set -u -o pipefail
 # starts or reuses a tmux Codex session rooted in the configured PR worktree and
 # sends the configured skill prompt to that session.
 
+default_gh_command() {
+  if [[ -r /proc/version ]] && grep -qiE 'microsoft|wsl' /proc/version &&
+    command -v gh.exe >/dev/null 2>&1; then
+    printf 'gh.exe\n'
+    return 0
+  fi
+
+  printf 'gh\n'
+}
+
 SCRIPT_NAME="$(basename "$0")"
 CONFIG_FILE="${CONFIG_FILE:-./pr-watch.conf}"
 STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pr-comment-codex-watch}"
@@ -15,6 +25,7 @@ WATCH_CI="${WATCH_CI:-true}"
 COMMENT_PAGE_SIZE="${COMMENT_PAGE_SIZE:-100}"
 CAPTURE_LINES="${CAPTURE_LINES:-250}"
 MATCH_TAIL_LINES="${MATCH_TAIL_LINES:-50}"
+GH_COMMAND="${GH_COMMAND:-$(default_gh_command)}"
 CODEX_COMMAND="${CODEX_COMMAND:-codex}"
 CODEX_FLAGS="${CODEX_FLAGS:---dangerously-bypass-approvals-and-sandbox}"
 SKILL_PREFIX="${SKILL_PREFIX:-}"
@@ -27,9 +38,9 @@ SEND_VERIFY_WAIT_SECONDS="${SEND_VERIFY_WAIT_SECONDS:-2}"
 PROMPT_ENTER_DELAY_SECONDS="${PROMPT_ENTER_DELAY_SECONDS:-3}"
 PROMPT_SEND_ATTEMPTS="${PROMPT_SEND_ATTEMPTS:-3}"
 PROMPT_ENTER_ATTEMPTS="${PROMPT_ENTER_ATTEMPTS:-3}"
-STATUS_ENABLED="${STATUS_ENABLED:-true}"
-STATUS_ISSUE_REPO="${STATUS_ISSUE_REPO:-jkwak-work/slang}"
-STATUS_ISSUE_NUMBER="${STATUS_ISSUE_NUMBER:-200}"
+STATUS_ENABLED="${STATUS_ENABLED:-false}"
+STATUS_ISSUE_REPO="${STATUS_ISSUE_REPO:-shader-slang/slang}"
+STATUS_ISSUE_NUMBER="${STATUS_ISSUE_NUMBER:-}"
 STATUS_UPDATE_SECONDS="${STATUS_UPDATE_SECONDS:-300}"
 STATUS_BLOCK_START="<!-- pr-watch-status:start -->"
 STATUS_BLOCK_END="<!-- pr-watch-status:end -->"
@@ -64,6 +75,7 @@ Environment knobs:
   BOOTSTRAP_MODE=prime        # first run records existing comments without firing
   CI_BOOTSTRAP_MODE=prime     # first run records current CI failure state
   WATCH_CI=true
+  GH_COMMAND="$GH_COMMAND"
   SKILL_PREFIX=             # default: '$' for codex, '/' for claude
   CODEX_SKILL="$CODEX_SKILL"
   FORK_REPO_SKILL="$FORK_REPO_SKILL"
@@ -72,11 +84,18 @@ Environment knobs:
   PROMPT_ENTER_DELAY_SECONDS=3
   PROMPT_SEND_ATTEMPTS=3
   PROMPT_ENTER_ATTEMPTS=3
-  STATUS_ENABLED=true
+  STATUS_ENABLED=false
   STATUS_ISSUE_REPO=$STATUS_ISSUE_REPO
   STATUS_ISSUE_NUMBER=$STATUS_ISSUE_NUMBER
   STATUS_UPDATE_SECONDS=$STATUS_UPDATE_SECONDS
   STATE_DIR=$STATE_DIR
+EOF
+}
+
+print_startup_warning() {
+  cat >&2 <<EOF
+WARNING: $SCRIPT_NAME dispatches local agent sessions from GitHub PR comments and CI changes.
+Run it only for trusted repositories/authors, preferably inside a sandboxed system; untrusted comments can attempt prompt injection.
 EOF
 }
 
@@ -216,13 +235,18 @@ record_status_event() {
   write_status_field "$key" "trigger" "$trigger"
 }
 
-ci_status_for_count() {
+ci_status_for_counts() {
   local failure_count="$1"
+  local pending_count="$2"
 
   if [[ "$WATCH_CI" != "true" ]]; then
     printf 'not watched\n'
+  elif [[ "$failure_count" -gt 0 && "$pending_count" -gt 0 ]]; then
+    printf '%s failing, %s pending\n' "$failure_count" "$pending_count"
   elif [[ "$failure_count" -gt 0 ]]; then
     printf '%s failing\n' "$failure_count"
+  elif [[ "$pending_count" -gt 0 ]]; then
+    printf '%s pending\n' "$pending_count"
   else
     printf 'passing\n'
   fi
@@ -318,18 +342,21 @@ parse_config_line() {
   [[ -n "${first:-}" ]] || return 0
 
   if [[ "$first" =~ ^https://github\.com/([^[:space:]]+/[^[:space:]]+)/pull/([0-9]+)/*$ ]]; then
+    [[ -z "${fifth:-}" ]] || die "too many fields in config line: $raw"
     repo="${BASH_REMATCH[1]}"
     pr="${BASH_REMATCH[2]}"
     worktree="${second:-}"
     session="${third:-}"
     skill="${fourth:-}"
   elif [[ "$first" =~ ^([^[:space:]]+/[^#[:space:]]+)#([0-9]+)$ ]]; then
+    [[ -z "${fifth:-}" ]] || die "too many fields in config line: $raw"
     repo="${BASH_REMATCH[1]}"
     pr="${BASH_REMATCH[2]}"
     worktree="${second:-}"
     session="${third:-}"
     skill="${fourth:-}"
   elif [[ "$first" =~ ^([^[:space:]]+/[^[:space:]]+)/pull/([0-9]+)$ ]]; then
+    [[ -z "${fifth:-}" ]] || die "too many fields in config line: $raw"
     repo="${BASH_REMATCH[1]}"
     pr="${BASH_REMATCH[2]}"
     worktree="${second:-}"
@@ -389,7 +416,7 @@ fetch_events() {
   tmp="$(mktemp)"
 
   raw="$(mktemp)"
-  if ! gh api --paginate "repos/$repo/issues/$pr/comments?per_page=$COMMENT_PAGE_SIZE" >"$raw"; then
+  if ! "$GH_COMMAND" api --paginate "repos/$repo/issues/$pr/comments?per_page=$COMMENT_PAGE_SIZE" >"$raw"; then
     rm -f "$tmp" "$raw"
     return 1
   fi
@@ -412,7 +439,7 @@ fetch_events() {
   rm -f "$raw"
 
   raw="$(mktemp)"
-  if ! gh api --paginate "repos/$repo/pulls/$pr/comments?per_page=$COMMENT_PAGE_SIZE" >"$raw"; then
+  if ! "$GH_COMMAND" api --paginate "repos/$repo/pulls/$pr/comments?per_page=$COMMENT_PAGE_SIZE" >"$raw"; then
     rm -f "$tmp" "$raw"
     return 1
   fi
@@ -435,7 +462,7 @@ fetch_events() {
   rm -f "$raw"
 
   raw="$(mktemp)"
-  if ! gh api --paginate "repos/$repo/pulls/$pr/reviews?per_page=$COMMENT_PAGE_SIZE" >"$raw"; then
+  if ! "$GH_COMMAND" api --paginate "repos/$repo/pulls/$pr/reviews?per_page=$COMMENT_PAGE_SIZE" >"$raw"; then
     rm -f "$tmp" "$raw"
     return 1
   fi
@@ -462,13 +489,13 @@ fetch_events() {
   rm -f "$tmp"
 }
 
-fetch_ci_failures() {
+fetch_ci_attention_checks() {
   local repo="$1"
   local pr="$2"
   local raw rc
   raw="$(mktemp)"
 
-  gh pr checks "$pr" --repo "$repo" \
+  "$GH_COMMAND" pr checks "$pr" --repo "$repo" \
     --json bucket,completedAt,description,event,link,name,startedAt,state,workflow \
     >"$raw"
   rc=$?
@@ -479,7 +506,7 @@ fetch_ci_failures() {
 
   if ! jq -c '
       .[] |
-      select(.bucket == "fail" or .bucket == "cancel") |
+      select(.bucket == "fail" or .bucket == "cancel" or .bucket == "pending") |
       {
         bucket,
         workflow: (.workflow // ""),
@@ -499,13 +526,13 @@ fetch_ci_failures() {
   rm -f "$raw"
 }
 
-ci_failure_signature() {
-  local failures_file="$1"
+ci_attention_signature() {
+  local checks_file="$1"
   jq -rsc '
     sort_by(.workflow, .name, .state, .completedAt, .link) |
     map([.bucket, .workflow, .name, .state, .completedAt, .link] | @tsv) |
     .[]
-  ' "$failures_file" | signature_for
+  ' "$checks_file" | signature_for
 }
 
 append_seen_ids() {
@@ -930,7 +957,7 @@ maybe_update_status_issue() {
   new_body_file="$(mktemp)"
 
   render_status_dashboard_block "$block_file"
-  if ! gh issue view "$STATUS_ISSUE_NUMBER" --repo "$STATUS_ISSUE_REPO" --json body -q .body >"$current_file"; then
+  if ! "$GH_COMMAND" issue view "$STATUS_ISSUE_NUMBER" --repo "$STATUS_ISSUE_REPO" --json body -q .body >"$current_file"; then
     log "failed to read status issue $STATUS_ISSUE_REPO#$STATUS_ISSUE_NUMBER"
     rm -f "$current_file" "$block_file" "$new_body_file"
     return 0
@@ -942,7 +969,7 @@ maybe_update_status_issue() {
     return 0
   fi
 
-  if gh issue edit "$STATUS_ISSUE_NUMBER" --repo "$STATUS_ISSUE_REPO" --body-file "$new_body_file" >/dev/null; then
+  if "$GH_COMMAND" issue edit "$STATUS_ISSUE_NUMBER" --repo "$STATUS_ISSUE_REPO" --body-file "$new_body_file" >/dev/null; then
     record_status_issue_update
   else
     log "failed to update status issue $STATUS_ISSUE_REPO#$STATUS_ISSUE_NUMBER"
@@ -1005,14 +1032,16 @@ comment_summary() {
   ' "$events_file"
 }
 
-ci_failure_summary() {
-  local failures_file="$1"
+ci_attention_summary() {
+  local checks_file="$1"
   jq -r '
     "- [" + .bucket + "] " + .workflow + " / " + .name
-    + " (" + .state + ", completed " + (.completedAt // "") + ")"
+    + " (" + .state
+    + (if ((.completedAt // "") | length) > 0 then ", completed " + .completedAt else "" end)
+    + ")"
     + (if ((.link // "") | length) > 0 then "\n  " + .link else "" end)
     + (if ((.description // "") | length) > 0 then "\n  " + .description else "" end)
-  ' "$failures_file"
+  ' "$checks_file"
 }
 
 build_prompt() {
@@ -1047,8 +1076,9 @@ process_watch_item() {
   local session="$4"
   local skill="$5"
   local key comment_state_file events_file new_file new_comment_count
-  local ci_state_file failures_file ci_failure_count previous_signature current_signature
+  local ci_state_file checks_file ci_failure_count ci_pending_count previous_signature current_signature
   local comment_needs_dispatch=false ci_needs_dispatch=false ci_cleared=false ci_primed=false
+  local ci_pending_changed=false
   local trigger_label
 
   key="$(state_key_for "$repo" "$pr")"
@@ -1057,9 +1087,10 @@ process_watch_item() {
   ci_state_file="$STATE_DIR/$key.ci-failures"
   events_file="$(mktemp)"
   new_file="$(mktemp)"
-  failures_file="$(mktemp)"
+  checks_file="$(mktemp)"
   new_comment_count=0
   ci_failure_count=0
+  ci_pending_count=0
   current_signature=""
 
   if fetch_events "$repo" "$pr" >"$events_file"; then
@@ -1084,15 +1115,16 @@ process_watch_item() {
   fi
 
   if [[ "$WATCH_CI" == "true" ]]; then
-    if fetch_ci_failures "$repo" "$pr" >"$failures_file"; then
-      ci_failure_count="$(line_count "$failures_file")"
-      current_signature="$(ci_failure_signature "$failures_file")"
-      write_status_field "$key" "ci" "$(ci_status_for_count "$ci_failure_count")"
+    if fetch_ci_attention_checks "$repo" "$pr" >"$checks_file"; then
+      ci_failure_count="$(jq -rs '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length' "$checks_file")"
+      ci_pending_count="$(jq -rs '[.[] | select(.bucket == "pending")] | length' "$checks_file")"
+      current_signature="$(ci_attention_signature "$checks_file")"
+      write_status_field "$key" "ci" "$(ci_status_for_counts "$ci_failure_count" "$ci_pending_count")"
 
       if [[ ! -f "$ci_state_file" ]]; then
         if [[ "$CI_BOOTSTRAP_MODE" != "trigger" ]]; then
           printf '%s\n' "$current_signature" >"$ci_state_file"
-          log "primed $repo#$pr CI with $ci_failure_count current failure(s)"
+          log "primed $repo#$pr CI with $ci_failure_count current failure(s), $ci_pending_count pending check(s)"
           ci_primed=true
         else
           previous_signature=""
@@ -1107,10 +1139,12 @@ process_watch_item() {
 
       if ! "$ci_primed"; then
         if [[ "$current_signature" != "${previous_signature-}" ]]; then
-          if [[ "$ci_failure_count" -eq 0 ]]; then
-            ci_cleared=true
-          else
+          if [[ "$ci_failure_count" -gt 0 ]]; then
             ci_needs_dispatch=true
+          elif [[ "$ci_pending_count" -gt 0 ]]; then
+            ci_pending_changed=true
+          else
+            ci_cleared=true
           fi
         fi
       fi
@@ -1126,6 +1160,12 @@ process_watch_item() {
     printf '%s\n' "$current_signature" >"$ci_state_file"
     record_status_event "$key" "CI cleared"
     log "CI failures cleared for $repo#$pr"
+  fi
+
+  if "$ci_pending_changed"; then
+    printf '%s\n' "$current_signature" >"$ci_state_file"
+    record_status_event "$key" "CI pending"
+    log "CI pending for $repo#$pr"
   fi
 
   if "$comment_needs_dispatch" || "$ci_needs_dispatch"; then
@@ -1155,7 +1195,7 @@ process_watch_item() {
     fi
   fi
 
-  rm -f "$events_file" "$new_file" "$failures_file"
+  rm -f "$events_file" "$new_file" "$checks_file"
 }
 
 recover_pending_watcher_prompt() {
@@ -1205,8 +1245,9 @@ monitor_configured_sessions() {
 main() {
   local i
 
+  print_startup_warning
   parse_args "$@"
-  need_command gh
+  need_command "$GH_COMMAND"
   need_command jq
   need_command tmux
   need_command grep
@@ -1219,7 +1260,7 @@ main() {
   need_command "$CODEX_COMMAND"
 
   mkdir -p "$STATE_DIR"
-  gh auth status >/dev/null || die "gh is not authenticated"
+  "$GH_COMMAND" auth status >/dev/null || die "$GH_COMMAND is not authenticated"
   trap finish_status_line EXIT
 
   while true; do
