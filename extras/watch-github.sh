@@ -2,8 +2,8 @@
 set -u -o pipefail
 
 # Watches configured GitHub PRs for new comments. When a new comment appears, it
-# starts or reuses a tmux Codex session rooted in the configured PR worktree and
-# sends the configured skill prompt to that session.
+# starts or reuses a tmux agent session rooted in the configured PR worktree and
+# sends the fixed slang-resolve-pr-comments prompt to that session.
 
 default_host_command() {
   local command_name="$1"
@@ -18,8 +18,8 @@ default_host_command() {
 }
 
 SCRIPT_NAME="$(basename "$0")"
-CONFIG_FILE="${CONFIG_FILE:-./pr-watch.conf}"
-STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pr-comment-codex-watch}"
+STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/watch-github}"
+WATCH_STATE_FILE="$STATE_DIR/watch-github.conf"
 POLL_SECONDS="${POLL_SECONDS:-60}"
 BOOTSTRAP_MODE="${BOOTSTRAP_MODE:-prime}" # prime or trigger
 CI_BOOTSTRAP_MODE="${CI_BOOTSTRAP_MODE:-$BOOTSTRAP_MODE}" # prime or trigger
@@ -30,71 +30,108 @@ MATCH_TAIL_LINES="${MATCH_TAIL_LINES:-50}"
 GH_COMMAND="${GH_COMMAND:-$(default_host_command gh)}"
 GIT_COMMAND="${GIT_COMMAND:-$(default_host_command git)}"
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-}"
-CODEX_COMMAND="${CODEX_COMMAND:-codex}"
-CODEX_FLAGS="${CODEX_FLAGS:---dangerously-bypass-approvals-and-sandbox}"
-SKILL_PREFIX="${SKILL_PREFIX:-}"
-CODEX_SKILL="${CODEX_SKILL:-slang-resolve-pr-comments}"
-FORK_REPO_SKILL="${FORK_REPO_SKILL:-review-on-fork-repo}"
-CODEX_EXTRA_ARGS="${CODEX_EXTRA_ARGS:-}"
-CODEX_START_WAIT_SECONDS="${CODEX_START_WAIT_SECONDS:-10}"
-CODEX_START_ATTEMPTS="${CODEX_START_ATTEMPTS:-5}"
+AGENT_COMMAND="${AGENT_COMMAND:-codex}"
+AGENT_FLAGS="${AGENT_FLAGS:-}"
+AGENT_COMMAND_NAME=""
+AGENT_READY_PATTERN="${AGENT_READY_PATTERN:-}"
+AGENT_PROMPT_LINE_PATTERN="${AGENT_PROMPT_LINE_PATTERN:-}"
+AGENT_PENDING_INPUT_PATTERN="${AGENT_PENDING_INPUT_PATTERN:-}"
+AGENT_WORKING_PATTERN="${AGENT_WORKING_PATTERN:-}"
+AGENT_APPROVAL_PATTERN="${AGENT_APPROVAL_PATTERN:-}"
+AGENT_WINDOW_NAME="${AGENT_WINDOW_NAME:-}"
+AGENT_SESSION_PREFIX="${AGENT_SESSION_PREFIX:-}"
+AGENT_SKILL_PREFIX="${AGENT_SKILL_PREFIX:-}"
+AGENT_START_WAIT_SECONDS="${AGENT_START_WAIT_SECONDS:-10}"
+AGENT_START_ATTEMPTS="${AGENT_START_ATTEMPTS:-5}"
 SEND_VERIFY_WAIT_SECONDS="${SEND_VERIFY_WAIT_SECONDS:-2}"
 PROMPT_ENTER_DELAY_SECONDS="${PROMPT_ENTER_DELAY_SECONDS:-3}"
 PROMPT_SEND_ATTEMPTS="${PROMPT_SEND_ATTEMPTS:-3}"
 PROMPT_ENTER_ATTEMPTS="${PROMPT_ENTER_ATTEMPTS:-3}"
-STATUS_ENABLED="${STATUS_ENABLED:-false}"
-STATUS_ISSUE_REPO="${STATUS_ISSUE_REPO:-shader-slang/slang}"
-STATUS_ISSUE_NUMBER="${STATUS_ISSUE_NUMBER:-}"
-STATUS_UPDATE_SECONDS="${STATUS_UPDATE_SECONDS:-300}"
+STATUS_ENABLED=false
+STATUS_ISSUE_REPO=""
+STATUS_ISSUE_NUMBER=""
 STATUS_BLOCK_START="<!-- pr-watch-status:start -->"
 STATUS_BLOCK_END="<!-- pr-watch-status:end -->"
+RESOLVE_SKILL="slang-resolve-pr-comments"
 ONCE=false
+HELP_REQUESTED=false
 
 declare -a REPOS=()
 declare -a PRS=()
 declare -a WORKTREES=()
 declare -a SESSIONS=()
-declare -a SKILLS=()
 declare -A APPROVED_SIGNATURES=()
-LAST_STATUS_UPDATE_EPOCH=0
 LAST_STATUS_ISSUE_MESSAGE=""
 STATUS_LINE_ACTIVE=false
 
+finalize_agent_config() {
+  local default_ready_pattern default_pending_input_pattern default_approval_pattern
+  local default_prompt_line_pattern
+  local codex_prompt_marker claude_prompt_marker prompt_gap
+
+  AGENT_COMMAND_NAME="$(basename "${AGENT_COMMAND%% *}")"
+  if [[ -z "$AGENT_COMMAND_NAME" ]]; then
+    AGENT_COMMAND_NAME="agent"
+  fi
+
+  if [[ -z "$AGENT_FLAGS" ]]; then
+    case "$AGENT_COMMAND_NAME" in
+      codex)
+        AGENT_FLAGS="--dangerously-bypass-approvals-and-sandbox"
+        ;;
+      claude|claude-code)
+        # This option may put Claude into Sandbox mode which may cause other problems.
+        #AGENT_FLAGS="--dangerously-skip-permissions"
+        ;;
+    esac
+  fi
+
+  codex_prompt_marker=$'\342\200\272'
+  claude_prompt_marker=$'\342\235\257'
+  prompt_gap=$'([[:space:]]|\302\240)*'
+
+  default_ready_pattern="$AGENT_COMMAND_NAME"
+  default_prompt_line_pattern="(^|[[:space:]])${codex_prompt_marker}|(^|[[:space:]])${claude_prompt_marker}"
+  default_pending_input_pattern="(^|[[:space:]])${codex_prompt_marker}${prompt_gap}\\\$${RESOLVE_SKILL}|(^|[[:space:]])${claude_prompt_marker}${prompt_gap}/${RESOLVE_SKILL}"
+  case "$AGENT_COMMAND_NAME" in
+    codex)
+      default_ready_pattern=$'Codex|gpt-[0-9]|dangerously-bypass-approvals-and-sandbox|(^|[[:space:]])\342\200\272[[:space:]]*$'
+      default_prompt_line_pattern="(^|[[:space:]])${codex_prompt_marker}"
+      default_pending_input_pattern="(^|[[:space:]])${codex_prompt_marker}${prompt_gap}\\\$${RESOLVE_SKILL}"
+      ;;
+    claude|claude-code)
+      default_ready_pattern='Claude|claude-code|(^|[[:space:]])>[[:space:]]*$'
+      default_prompt_line_pattern="(^|[[:space:]])${claude_prompt_marker}"
+      default_pending_input_pattern="(^|[[:space:]])${claude_prompt_marker}${prompt_gap}/${RESOLVE_SKILL}"
+      ;;
+  esac
+
+  AGENT_READY_PATTERN="${AGENT_READY_PATTERN:-$default_ready_pattern}"
+  AGENT_PROMPT_LINE_PATTERN="${AGENT_PROMPT_LINE_PATTERN:-$default_prompt_line_pattern}"
+  AGENT_PENDING_INPUT_PATTERN="${AGENT_PENDING_INPUT_PATTERN:-$default_pending_input_pattern}"
+  AGENT_WORKING_PATTERN="${AGENT_WORKING_PATTERN:-Working \(|esc to interrupt|background terminal running|^• (Ran|Explored|Edited|Read|Searched|Thinking|Working)}"
+  default_approval_pattern=$'(^|[[:space:]])\342\235\257[[:space:]]+1[.] Yes'
+  AGENT_APPROVAL_PATTERN="${AGENT_APPROVAL_PATTERN:-$default_approval_pattern}"
+  AGENT_WINDOW_NAME="${AGENT_WINDOW_NAME:-$AGENT_COMMAND_NAME}"
+  AGENT_SESSION_PREFIX="${AGENT_SESSION_PREFIX:-$AGENT_WINDOW_NAME}"
+}
+
 usage() {
   cat <<EOF
-Usage: $SCRIPT_NAME [--config FILE] [--once]
+Usage: $SCRIPT_NAME [--agent [claude|codex]] [--once] [--status-issue URL]
 
-Config format, one PR per line:
-  https://github.com/owner/repo/pull/PR_NUMBER /absolute/worktree/path [tmux-session] [skill-prompt]
+Purpose:
+  Watch GitHub PR comments, reviews, and CI checks, then dispatch
+  $(skill_prefix_for_agent)$RESOLVE_SKILL <PR_NUMBER> to a tmux-hosted agent.
 
-The skill field is a bare skill name. The watcher adds the CLI-specific prefix
-when it sends the prompt ('$' for codex, '/' for claude).
+Options:
+  --agent [claude|codex]
+                      Agent to run in tmux. Defaults to codex.
+  --once              Run one polling pass and exit.
+  --status-issue URL  Update this GitHub issue once per polling pass.
 
-Example:
-  https://github.com/shader-slang/slang/pull/12345 /mnt/d/sbf/git/slang/pr-12345 slang-pr-12345 slang-resolve-pr-comments
-  https://github.com/jkwak-work/slang/pull/175 /mnt/d/sbf/git/slang/pr-175 slang-pr-175 review-on-fork-repo
-
-Environment knobs:
-  POLL_SECONDS=60
-  BOOTSTRAP_MODE=prime        # first run records existing comments without firing
-  CI_BOOTSTRAP_MODE=prime     # first run records current CI failure state
-  WATCH_CI=true
-  GH_COMMAND="$GH_COMMAND"
-  GIT_COMMAND="$GIT_COMMAND"
-  DEFAULT_BRANCH=$DEFAULT_BRANCH  # override when origin/HEAD is unavailable
-  SKILL_PREFIX=             # default: '$' for codex, '/' for claude
-  CODEX_SKILL="$CODEX_SKILL"
-  FORK_REPO_SKILL="$FORK_REPO_SKILL"
-  CODEX_FLAGS="$CODEX_FLAGS"
-  CODEX_EXTRA_ARGS=--single-pass
-  PROMPT_ENTER_DELAY_SECONDS=3
-  PROMPT_SEND_ATTEMPTS=3
-  PROMPT_ENTER_ATTEMPTS=3
-  STATUS_ENABLED=false
-  STATUS_ISSUE_REPO=$STATUS_ISSUE_REPO
-  STATUS_ISSUE_NUMBER=$STATUS_ISSUE_NUMBER
-  STATUS_UPDATE_SECONDS=$STATUS_UPDATE_SECONDS
-  STATE_DIR=$STATE_DIR
+Details:
+  See extras/watch-github.md.
 EOF
 }
 
@@ -310,27 +347,13 @@ ci_status_for_counts() {
   fi
 }
 
-default_skill_for() {
-  local repo="$1"
-
-  if [[ "$repo" == jkwak-work/* ]]; then
-    printf '%s\n' "$FORK_REPO_SKILL"
-    return 0
-  fi
-
-  printf '%s\n' "$CODEX_SKILL"
-}
-
 skill_prefix_for_agent() {
-  local command_name
-
-  if [[ -n "$SKILL_PREFIX" ]]; then
-    printf '%s\n' "$SKILL_PREFIX"
+  if [[ -n "$AGENT_SKILL_PREFIX" ]]; then
+    printf '%s\n' "$AGENT_SKILL_PREFIX"
     return 0
   fi
 
-  command_name="$(basename "${CODEX_COMMAND%% *}")"
-  case "$command_name" in
+  case "$AGENT_COMMAND_NAME" in
     codex)
       printf '$\n'
       ;;
@@ -343,43 +366,54 @@ skill_prefix_for_agent() {
   esac
 }
 
-normalize_skill_name() {
-  local skill="$1"
-  skill="${skill#/}"
-  skill="${skill#\$}"
-  printf '%s\n' "$skill"
+resolve_prompt_for_pr() {
+  local pr="$1"
+  local prefix
+
+  prefix="$(skill_prefix_for_agent)"
+  printf '%s%s %s\n' "$prefix" "$RESOLVE_SKILL" "$pr"
 }
 
-skill_invocation_for() {
-  local repo="$1"
-  local pr="$2"
-  local skill="$3"
-  local extra prefix
+parse_status_issue_url() {
+  local url="$1"
 
-  [[ -n "$skill" ]] || skill="$(default_skill_for "$repo")"
-  skill="$(normalize_skill_name "$skill")"
-  prefix="$(skill_prefix_for_agent)"
+  if [[ "$url" =~ ^https://github\.com/([^[:space:]]+/[^[:space:]]+)/issues/([0-9]+)/*$ ]]; then
+    STATUS_ISSUE_REPO="${BASH_REMATCH[1]}"
+    STATUS_ISSUE_NUMBER="${BASH_REMATCH[2]}"
+    STATUS_ENABLED=true
+    return 0
+  fi
 
-  extra=""
-  [[ -n "$CODEX_EXTRA_ARGS" ]] && extra=" $CODEX_EXTRA_ARGS"
-  printf '%s%s %s%s\n' "$prefix" "$skill" "$pr" "$extra"
+  die "bad status issue URL: $url"
 }
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --config|-c)
-        [[ $# -ge 2 ]] || die "--config requires a file path"
-        CONFIG_FILE="$2"
+      --agent)
+        [[ $# -ge 2 ]] || die "--agent requires an agent command"
+        case "$2" in
+          codex|claude)
+            ;;
+          *)
+            die "bad --agent value: $2; expected codex or claude"
+            ;;
+        esac
+        AGENT_COMMAND="$2"
         shift 2
         ;;
       --once)
         ONCE=true
         shift
         ;;
+      --status-issue)
+        [[ $# -ge 2 ]] || die "--status-issue requires a GitHub issue URL"
+        parse_status_issue_url "$2"
+        shift 2
+        ;;
       --help|-h)
-        usage
-        exit 0
+        HELP_REQUESTED=true
+        shift
         ;;
       *)
         die "unknown argument: $1"
@@ -388,83 +422,71 @@ parse_args() {
   done
 }
 
-parse_config_line() {
-  local raw line first second third fourth fifth extra repo pr worktree session skill
+parse_watch_state_line() {
+  local raw line first second third fourth extra repo pr worktree session
   raw="$1"
   line="$(printf '%s' "$raw" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   [[ -n "$line" ]] || return 0
   [[ "$line" =~ ^# ]] && return 0
 
-  read -r first second third fourth fifth extra <<<"$line"
-  [[ -z "${extra:-}" ]] || die "too many fields in config line: $raw"
+  read -r first second third fourth extra <<<"$line"
+  [[ -z "${extra:-}" ]] || die "too many fields in watch state line: $raw"
   [[ -n "${first:-}" ]] || return 0
 
   if [[ "$first" =~ ^https://github\.com/([^[:space:]]+/[^[:space:]]+)/pull/([0-9]+)/*$ ]]; then
-    [[ -z "${fifth:-}" ]] || die "too many fields in config line: $raw"
+    [[ -z "${fourth:-}" ]] || die "too many fields in watch state line: $raw"
     repo="${BASH_REMATCH[1]}"
     pr="${BASH_REMATCH[2]}"
     worktree="${second:-}"
     session="${third:-}"
-    skill="${fourth:-}"
   elif [[ "$first" =~ ^([^[:space:]]+/[^#[:space:]]+)#([0-9]+)$ ]]; then
-    [[ -z "${fifth:-}" ]] || die "too many fields in config line: $raw"
+    [[ -z "${fourth:-}" ]] || die "too many fields in watch state line: $raw"
     repo="${BASH_REMATCH[1]}"
     pr="${BASH_REMATCH[2]}"
     worktree="${second:-}"
     session="${third:-}"
-    skill="${fourth:-}"
   elif [[ "$first" =~ ^([^[:space:]]+/[^[:space:]]+)/pull/([0-9]+)$ ]]; then
-    [[ -z "${fifth:-}" ]] || die "too many fields in config line: $raw"
+    [[ -z "${fourth:-}" ]] || die "too many fields in watch state line: $raw"
     repo="${BASH_REMATCH[1]}"
     pr="${BASH_REMATCH[2]}"
     worktree="${second:-}"
     session="${third:-}"
-    skill="${fourth:-}"
   else
     repo="${first:-}"
     pr="${second:-}"
     worktree="${third:-}"
     session="${fourth:-}"
-    skill="${fifth:-}"
   fi
 
-  [[ -n "$repo" && -n "$pr" && -n "$worktree" ]] || die "bad config line: $raw"
-  [[ "$pr" =~ ^[0-9]+$ ]] || die "bad PR number in config line: $raw"
-
-  if [[ ( "${session:-}" == \$* || "${session:-}" == /* ) && -z "${skill:-}" ]]; then
-    skill="$session"
-    session=""
-  fi
-  skill="$(normalize_skill_name "${skill:-}")"
+  [[ -n "$repo" && -n "$pr" && -n "$worktree" ]] || die "bad watch state line: $raw"
+  [[ "$pr" =~ ^[0-9]+$ ]] || die "bad PR number in watch state line: $raw"
 
   if [[ -z "$session" ]]; then
-    session="$(sanitize_name "codex-${repo}-pr-${pr}")"
+    session="$(sanitize_name "$AGENT_SESSION_PREFIX-${repo}-pr-${pr}")"
   else
     session="$(sanitize_name "$session")"
   fi
-  [[ -n "$session" ]] || die "empty tmux session name for config line: $raw"
+  [[ -n "$session" ]] || die "empty tmux session name for watch state line: $raw"
 
   REPOS+=("$repo")
   PRS+=("$pr")
   WORKTREES+=("$worktree")
   SESSIONS+=("$session")
-  SKILLS+=("${skill:-}")
 }
 
-read_config() {
+read_watch_state() {
   local line
   REPOS=()
   PRS=()
   WORKTREES=()
   SESSIONS=()
-  SKILLS=()
 
-  [[ -f "$CONFIG_FILE" ]] || die "config file not found: $CONFIG_FILE"
+  [[ -f "$WATCH_STATE_FILE" ]] || die "watch state file not found: $WATCH_STATE_FILE"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    parse_config_line "$line"
-  done <"$CONFIG_FILE"
+    parse_watch_state_line "$line"
+  done <"$WATCH_STATE_FILE"
 
-  [[ "${#REPOS[@]}" -gt 0 ]] || die "config contains no PRs: $CONFIG_FILE"
+  [[ "${#REPOS[@]}" -gt 0 ]] || die "watch state contains no PRs: $WATCH_STATE_FILE"
 }
 
 fetch_events() {
@@ -633,8 +655,8 @@ tmux_window_exists() {
 
 target_for_session() {
   local session="$1"
-  if tmux_window_exists "$session" "codex"; then
-    printf '%s\n' "$session:codex.0"
+  if tmux_window_exists "$session" "$AGENT_WINDOW_NAME"; then
+    printf '%s\n' "$session:$AGENT_WINDOW_NAME.0"
   else
     printf '%s\n' "$session:0.0"
   fi
@@ -655,33 +677,29 @@ pane_tail() {
   tmux capture-pane -p -J -S "-$CAPTURE_LINES" -t "$target" 2>/dev/null
 }
 
-pane_looks_like_codex() {
+pane_looks_like_agent() {
   local text="$1"
-  local prompt_re
-  prompt_re=$'(^|[[:space:]])\342\200\272[[:space:]]*$'
-  printf '%s\n' "$text" | grep -qiE 'Codex|gpt-[0-9]|dangerously-bypass-approvals-and-sandbox' && return 0
-  printf '%s\n' "$text" | grep -Eq "$prompt_re"
+  printf '%s\n' "$text" | grep -Eq "$AGENT_READY_PATTERN"
 }
 
-codex_prompt_has_pending_input() {
+agent_prompt_has_pending_input() {
   local text="$1"
-  codex_pending_input_line "$text" >/dev/null
+  agent_pending_input_line "$text" >/dev/null
 }
 
-codex_pending_input_line() {
+agent_pending_input_line() {
   local text="$1"
-  local line last_prompt_line prompt_re
-  prompt_re=$'\342\200\272[[:space:]]*[^[:space:]]'
+  local line last_prompt_line
 
   last_prompt_line=""
   while IFS= read -r line; do
-    if [[ "$line" == *$'\342\200\272'* ]]; then
+    if [[ "$line" =~ $AGENT_PROMPT_LINE_PATTERN ]]; then
       last_prompt_line="$line"
     fi
   done < <(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")
 
   [[ -n "$last_prompt_line" ]] || return 1
-  [[ "$last_prompt_line" =~ $prompt_re ]] || return 1
+  [[ "$last_prompt_line" =~ $AGENT_PENDING_INPUT_PATTERN ]] || return 1
   printf '%s\n' "$last_prompt_line"
 }
 
@@ -690,14 +708,14 @@ prompt_visible_in_current_input() {
   local prompt="$2"
   local input_line
 
-  input_line="$(codex_pending_input_line "$text")" || return 1
+  input_line="$(agent_pending_input_line "$text")" || return 1
   [[ "$input_line" == *"$prompt"* ]]
 }
 
 pane_looks_working() {
   local text="$1"
   printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES" \
-    | grep -Eq 'Working \(|esc to interrupt|background terminal running|^• (Ran|Explored|Edited|Read|Searched|Thinking|Working)'
+    | grep -Eq "$AGENT_WORKING_PATTERN"
 }
 
 last_prompt_file_for_target() {
@@ -718,7 +736,7 @@ load_last_prompt_for_target() {
   cat "$(last_prompt_file_for_target "$target")" 2>/dev/null || true
 }
 
-clear_pending_codex_input() {
+clear_pending_agent_input() {
   local target="$1"
   tmux send-keys -t "$target" C-u
   sleep 1
@@ -752,7 +770,7 @@ submit_pending_prompt() {
     if pane_looks_working "$text"; then
       return 0
     fi
-    if ! codex_prompt_has_pending_input "$text"; then
+    if ! agent_prompt_has_pending_input "$text"; then
       return 0
     fi
     if ! prompt_visible_in_current_input "$text" "$prompt"; then
@@ -763,29 +781,30 @@ submit_pending_prompt() {
   return 1
 }
 
-wait_for_codex_ready() {
+wait_for_agent_ready() {
   local target="$1"
   local attempt text
-  for ((attempt = 1; attempt <= CODEX_START_ATTEMPTS; attempt++)); do
-    sleep "$CODEX_START_WAIT_SECONDS"
+  for ((attempt = 1; attempt <= AGENT_START_ATTEMPTS; attempt++)); do
+    sleep "$AGENT_START_WAIT_SECONDS"
     text="$(pane_tail "$target" || true)"
-    if pane_looks_like_codex "$text"; then
+    if pane_looks_like_agent "$text"; then
       return 0
     fi
   done
   return 1
 }
 
-start_codex_in_pane() {
+start_agent_in_pane() {
   local target="$1"
   local worktree="$2"
   local command
-  command="cd $(shell_quote "$worktree") && $CODEX_COMMAND $CODEX_FLAGS"
+  command="cd $(shell_quote "$worktree") && $AGENT_COMMAND"
+  [[ -n "$AGENT_FLAGS" ]] && command="$command $AGENT_FLAGS"
   tmux send-keys -t "$target" "$command" Enter
-  wait_for_codex_ready "$target"
+  wait_for_agent_ready "$target"
 }
 
-ensure_codex_target() {
+ensure_agent_target() {
   local session="$1"
   local worktree="$2"
   local target text
@@ -797,10 +816,10 @@ ensure_codex_target() {
 
   if ! tmux_session_exists "$session"; then
     log "creating tmux session $session in $worktree"
-    tmux new-session -d -s "$session" -n codex -c "$worktree" bash || return 1
-    target="$session:codex.0"
-    if ! start_codex_in_pane "$target" "$worktree"; then
-      log "Codex did not become ready in $target"
+    tmux new-session -d -s "$session" -n "$AGENT_WINDOW_NAME" -c "$worktree" bash || return 1
+    target="$session:$AGENT_WINDOW_NAME.0"
+    if ! start_agent_in_pane "$target" "$worktree"; then
+      log "agent did not become ready in $target"
       pane_tail "$target" >&2 || true
       return 1
     fi
@@ -808,15 +827,15 @@ ensure_codex_target() {
     return 0
   fi
 
-  if ! tmux_window_exists "$session" "codex"; then
+  if ! tmux_window_exists "$session" "$AGENT_WINDOW_NAME"; then
     target="$(target_for_session "$session")"
     text="$(pane_tail "$target" || true)"
-    if ! pane_looks_like_codex "$text"; then
-      log "session $session exists; creating codex window in $worktree"
-      tmux new-window -d -t "$session:" -n codex -c "$worktree" bash || return 1
-      target="$session:codex.0"
-      if ! start_codex_in_pane "$target" "$worktree"; then
-        log "Codex did not become ready in $target"
+    if ! pane_looks_like_agent "$text"; then
+      log "session $session exists; creating $AGENT_WINDOW_NAME window in $worktree"
+      tmux new-window -d -t "$session:" -n "$AGENT_WINDOW_NAME" -c "$worktree" bash || return 1
+      target="$session:$AGENT_WINDOW_NAME.0"
+      if ! start_agent_in_pane "$target" "$worktree"; then
+        log "agent did not become ready in $target"
         pane_tail "$target" >&2 || true
         return 1
       fi
@@ -825,9 +844,9 @@ ensure_codex_target() {
 
   target="$(target_for_session "$session")"
   text="$(pane_tail "$target" || true)"
-  if ! pane_looks_like_codex "$text"; then
-    if ! start_codex_in_pane "$target" "$worktree"; then
-      log "Codex did not become ready in existing target $target"
+  if ! pane_looks_like_agent "$text"; then
+    if ! start_agent_in_pane "$target" "$worktree"; then
+      log "agent did not become ready in existing target $target"
       pane_tail "$target" >&2 || true
       return 1
     fi
@@ -839,11 +858,10 @@ ensure_codex_target() {
 approval_prompt_present() {
   local text="$1"
   local tail_text
+  [[ -n "$AGENT_APPROVAL_PATTERN" ]] || return 1
   tail_text="$(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")"
 
-  #printf '%s\n' "$tail_text" | grep -Fq "Permission rule Bash requires confirmation for this command." || return 1
-  #printf '%s\n' "$tail_text" | grep -Fq "Do you want to proceed?" || return 1
-  printf '%s\n' "$tail_text" | grep -Eq $'(^|[[:space:]])\342\235\257[[:space:]]+1[.] Yes' || return 1
+  printf '%s\n' "$tail_text" | grep -Eq "$AGENT_APPROVAL_PATTERN" || return 1
 
   return 0
 }
@@ -863,7 +881,7 @@ maybe_approve_prompt() {
     if [[ "${APPROVED_SIGNATURES[$target]:-}" != "$signature" ]]; then
       tmux send-keys -t "$target" Enter
       APPROVED_SIGNATURES["$target"]="$signature"
-      log "approved Codex prompt in $target"
+      log "approved agent prompt in $target"
     fi
   fi
 }
@@ -888,7 +906,7 @@ tmux_state_for_session() {
       return 0
     fi
 
-    if codex_prompt_has_pending_input "$text"; then
+    if agent_prompt_has_pending_input "$text"; then
       state="pending input"
       continue
     fi
@@ -896,7 +914,7 @@ tmux_state_for_session() {
     if [[ "$state" != "pending input" ]]; then
       if pane_looks_working "$text"; then
         state="working"
-      elif [[ "$state" == "unknown" ]] && pane_looks_like_codex "$text"; then
+      elif [[ "$state" == "unknown" ]] && pane_looks_like_agent "$text"; then
         state="idle"
       fi
     fi
@@ -996,19 +1014,10 @@ replace_status_block() {
 }
 
 maybe_update_status_issue() {
-  local now_epoch interval current_file block_file new_body_file
+  local current_file block_file new_body_file
 
   [[ "$STATUS_ENABLED" == "true" ]] || return 0
   [[ -n "$STATUS_ISSUE_REPO" && -n "$STATUS_ISSUE_NUMBER" ]] || return 0
-
-  interval="$STATUS_UPDATE_SECONDS"
-  [[ "$interval" =~ ^[0-9]+$ ]] || interval=300
-  now_epoch="$(date +%s)"
-  if ! "$ONCE" && [[ "$LAST_STATUS_UPDATE_EPOCH" -gt 0 ]] &&
-    ((now_epoch - LAST_STATUS_UPDATE_EPOCH < interval)); then
-    return 0
-  fi
-  LAST_STATUS_UPDATE_EPOCH="$now_epoch"
 
   current_file="$(mktemp)"
   block_file="$(mktemp)"
@@ -1050,8 +1059,8 @@ send_prompt_to_target() {
   for ((attempt = 1; attempt <= PROMPT_SEND_ATTEMPTS; attempt++)); do
     text="$(pane_tail "$target" || true)"
     maybe_approve_prompt "$target" "$text"
-    if codex_prompt_has_pending_input "$text" && ! prompt_visible_in_current_input "$text" "$prompt"; then
-      clear_pending_codex_input "$target"
+    if agent_prompt_has_pending_input "$text" && ! prompt_visible_in_current_input "$text" "$prompt"; then
+      clear_pending_agent_input "$target"
     fi
 
     if ! paste_prompt_once "$target" "$buffer_name" "$tmp"; then
@@ -1073,41 +1082,11 @@ send_prompt_to_target() {
       log "prompt paste incomplete in $target; retrying"
     fi
 
-    clear_pending_codex_input "$target"
+    clear_pending_agent_input "$target"
   done
 
   rm -f "$tmp"
   return 1
-}
-
-comment_summary() {
-  local events_file="$1"
-  jq -r '
-    def preview:
-      (.body // "" | gsub("\r"; "") | split("\n")[0] | .[0:220]);
-    "- [" + .kind + "] @" + .author + " " + (.createdAt // "") + ": " + .url
-    + (if (preview | length) > 0 then "\n  " + preview else "" end)
-  ' "$events_file"
-}
-
-ci_attention_summary() {
-  local checks_file="$1"
-  jq -r '
-    "- [" + .bucket + "] " + .workflow + " / " + .name
-    + " (" + .state
-    + (if ((.completedAt // "") | length) > 0 then ", completed " + .completedAt else "" end)
-    + ")"
-    + (if ((.link // "") | length) > 0 then "\n  " + .link else "" end)
-    + (if ((.description // "") | length) > 0 then "\n  " + .description else "" end)
-  ' "$checks_file"
-}
-
-build_prompt() {
-  local repo="$1"
-  local pr="$2"
-  local skill="$3"
-
-  skill_invocation_for "$repo" "$pr" "$skill"
 }
 
 dispatch_watch_prompt() {
@@ -1115,14 +1094,13 @@ dispatch_watch_prompt() {
   local pr="$2"
   local worktree="$3"
   local session="$4"
-  local skill="$5"
-  local comment_count="$6"
-  local ci_failure_count="$7"
+  local comment_count="$5"
+  local ci_failure_count="$6"
   local target prompt
 
   log "dispatching prompt for $repo#$pr to tmux session $session (comments=$comment_count, ci_failures=$ci_failure_count)"
-  target="$(ensure_codex_target "$session" "$worktree")" || return 1
-  prompt="$(build_prompt "$repo" "$pr" "$skill")"
+  target="$(ensure_agent_target "$session" "$worktree")" || return 1
+  prompt="$(resolve_prompt_for_pr "$pr")"
   send_prompt_to_target "$target" "$prompt" || return 1
   log "sent prompt for $repo#$pr to $target"
 }
@@ -1132,7 +1110,6 @@ process_watch_item() {
   local pr="$2"
   local worktree="$3"
   local session="$4"
-  local skill="$5"
   local key comment_state_file events_file new_file new_comment_count
   local ci_state_file checks_file ci_failure_count ci_pending_count previous_signature current_signature
   local comment_needs_dispatch=false ci_needs_dispatch=false ci_cleared=false ci_primed=false
@@ -1239,7 +1216,7 @@ process_watch_item() {
       fi
     fi
 
-    if dispatch_watch_prompt "$repo" "$pr" "$worktree" "$session" "$skill" "$new_comment_count" "$ci_failure_count"; then
+    if dispatch_watch_prompt "$repo" "$pr" "$worktree" "$session" "$new_comment_count" "$ci_failure_count"; then
       record_status_event "$key" "$trigger_label"
       if "$comment_needs_dispatch"; then
         append_seen_ids "$comment_state_file" "$new_file"
@@ -1261,7 +1238,7 @@ recover_pending_watcher_prompt() {
   local text="$2"
   local last_prompt skill_token input_line
 
-  codex_prompt_has_pending_input "$text" || return 0
+  agent_prompt_has_pending_input "$text" || return 0
 
   last_prompt="$(load_last_prompt_for_target "$target")"
   [[ -n "$last_prompt" ]] || return 0
@@ -1276,10 +1253,10 @@ recover_pending_watcher_prompt() {
   fi
 
   skill_token="${last_prompt%% *}"
-  input_line="$(codex_pending_input_line "$text" 2>/dev/null || true)"
+  input_line="$(agent_pending_input_line "$text" 2>/dev/null || true)"
   if [[ "$input_line" == *"$skill_token"* ]]; then
     log "clearing incomplete watcher prompt in $target and resending"
-    clear_pending_codex_input "$target"
+    clear_pending_agent_input "$target"
     send_prompt_to_target "$target" "$last_prompt" || log "failed to resend watcher prompt to $target"
   fi
 }
@@ -1303,31 +1280,37 @@ monitor_configured_sessions() {
 main() {
   local i
 
-  print_startup_warning
   parse_args "$@"
-  need_command "$GIT_COMMAND"
+  finalize_agent_config
+  if "$HELP_REQUESTED"; then
+    usage
+    exit 0
+  fi
+  print_startup_warning
   need_command "$GH_COMMAND"
-  need_command jq
-  need_command tmux
-  need_command grep
-  need_command cksum
+  need_command "$GIT_COMMAND"
+  need_command "${AGENT_COMMAND%% *}"
   need_command awk
-  need_command tail
+  need_command cksum
   need_command cmp
-  need_command sort
   need_command cut
-  need_command "$CODEX_COMMAND"
+  need_command grep
+  need_command jq
+  need_command sort
+  need_command tail
+  need_command tmux
 
   require_repo_root
   require_default_branch
-  mkdir -p "$STATE_DIR"
   "$GH_COMMAND" auth status >/dev/null || die "$GH_COMMAND is not authenticated"
+
+  mkdir -p "$STATE_DIR"
   trap finish_status_line EXIT
 
   while true; do
-    read_config
+    read_watch_state
     for ((i = 0; i < ${#REPOS[@]}; i++)); do
-      process_watch_item "${REPOS[$i]}" "${PRS[$i]}" "${WORKTREES[$i]}" "${SESSIONS[$i]}" "${SKILLS[$i]}"
+      process_watch_item "${REPOS[$i]}" "${PRS[$i]}" "${WORKTREES[$i]}" "${SESSIONS[$i]}"
     done
     monitor_configured_sessions
     maybe_update_status_issue
