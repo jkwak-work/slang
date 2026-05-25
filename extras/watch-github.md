@@ -31,9 +31,10 @@ issue is added to watch state only after the new agent is live.
 
 For tracked issue rows, the watcher treats the agent as idle when the captured pane screen repeats
 across polling checks. If the tracked tmux session no longer has a live agent, the issue row is
-removed and rediscovered through the fresh setup path. When the agent is idle and live, it compares
-the worktree HEAD with the target repository default branch. If they match, it sends the issue
-prompt. If the worktree has a new commit, it sends `slang-pr-create <origin-repo>`.
+removed and rediscovered through the fresh setup path. When the agent is idle and live, it checks
+whether the worktree HEAD is already contained in any known ref for the target repository default
+branch. If so, it sends the issue prompt. If the worktree has a new commit, it sends
+`slang-pr-create <origin-repo>`.
 
 ## Issue State Flow
 
@@ -81,7 +82,7 @@ flowchart TD
     Y -- yes --> AC{"Resolve PR base repo?"}
     AC -- no --> AD["Set phase `repo check failed`"]
     AD --> Z
-    AC -- yes --> AE{"HEAD matches base branch?"}
+    AC -- yes --> AE{"HEAD is in default branch history?"}
     AE -- yes --> AF["Send issue work prompt"]
     AF --> AG{"Prompt sent?"}
     AG -- yes --> AH["Set phase `issue prompt`"]

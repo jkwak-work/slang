@@ -1003,22 +1003,59 @@ git_commit_for_ref() {
   git_in_worktree "$worktree" rev-parse --verify "$ref^{commit}" 2>/dev/null
 }
 
-worktree_head_matches_base() {
+worktree_ref_contains_head() {
+  local worktree="$1"
+  local ref="$2"
+  local rc
+
+  git_commit_for_ref "$worktree" "$ref" >/dev/null || return 2
+  git_in_worktree "$worktree" merge-base --is-ancestor HEAD "$ref" >/dev/null 2>&1
+  rc=$?
+  case "$rc" in
+    0 | 1)
+      return "$rc"
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+}
+
+worktree_head_is_in_default_branch() {
   local worktree="$1"
   local pr_repo="$2"
-  local base_branch head_sha base_sha
+  local base_branch refs_file unique_refs_file ref rc
+
+  git_commit_for_ref "$worktree" HEAD >/dev/null || return 2
 
   base_branch="$(resolve_repo_default_branch "$pr_repo")" || return 2
-  head_sha="$(git_commit_for_ref "$worktree" HEAD || true)"
-  base_sha="$(git_commit_for_ref "$worktree" "refs/remotes/origin/$base_branch" || true)"
-  [[ -n "$base_sha" ]] || base_sha="$(git_commit_for_ref "$worktree" "origin/$base_branch" || true)"
-  [[ -n "$base_sha" ]] || base_sha="$(git_commit_for_ref "$worktree" "$base_branch" || true)"
+  refs_file="$(mktemp)"
+  unique_refs_file="$(mktemp)"
+  printf '%s\n' \
+    "refs/remotes/origin/$base_branch" \
+    "origin/$base_branch" \
+    "$base_branch" >"$refs_file"
+  git_in_worktree "$worktree" for-each-ref \
+    --format='%(refname:short)' "refs/remotes/*/$base_branch" >>"$refs_file" 2>/dev/null || true
+  awk 'NF && !seen[$0]++' "$refs_file" >"$unique_refs_file"
 
-  if [[ -z "$head_sha" || -z "$base_sha" ]]; then
-    return 2
-  fi
+  rc=2
+  while IFS= read -r ref; do
+    [[ -n "$ref" ]] || continue
+    worktree_ref_contains_head "$worktree" "$ref"
+    case "$?" in
+      0)
+        rm -f "$refs_file" "$unique_refs_file"
+        return 0
+        ;;
+      1)
+        rc=1
+        ;;
+    esac
+  done <"$unique_refs_file"
 
-  [[ "$head_sha" == "$base_sha" ]]
+  rm -f "$refs_file" "$unique_refs_file"
+  return "$rc"
 }
 
 fetch_copilot_issues() {
@@ -2110,7 +2147,7 @@ process_issue_item() {
   fi
 
   compare_status=0
-  worktree_head_matches_base "$worktree" "$pr_base_repo" || compare_status=$?
+  worktree_head_is_in_default_branch "$worktree" "$pr_base_repo" || compare_status=$?
   if [[ "$compare_status" -eq 0 ]]; then
     prompt="$(resolve_prompt_for_issue "$repo" "$issue")"
     if send_prompt_to_target "$target" "$prompt"; then
@@ -2123,7 +2160,7 @@ process_issue_item() {
     return 0
   elif [[ "$compare_status" -eq 2 ]]; then
     set_status_phase "$key" "head check failed"
-    log "could not compare $worktree HEAD with $pr_base_repo default branch"
+    log "could not determine whether $worktree HEAD is already in the default branch history"
     return 0
   fi
 
