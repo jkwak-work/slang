@@ -1217,7 +1217,7 @@ create_issue_worktree() {
 start_discovered_issue() {
   local repo="$1"
   local issue="$2"
-  local key worktree_name worktree target state
+  local key worktree_name worktree target state initial_prompt
 
   key="$(state_key_for_issue "$repo" "$issue")"
   worktree_name="$(issue_worktree_name "$issue")"
@@ -1241,8 +1241,9 @@ start_discovered_issue() {
   worktree="$(create_issue_worktree "$repo" "$issue")" || return 1
   clear_issue_agent_state "$worktree_name"
 
-  if ! target="$(ensure_agent_target "$worktree_name" "$worktree")"; then
-    log "failed to start agent for $repo#$issue; will retry from issue discovery"
+  initial_prompt="$(resolve_prompt_for_issue "$repo" "$issue")"
+  if ! target="$(ensure_agent_target "$worktree_name" "$worktree" "$initial_prompt")"; then
+    log "failed to start agent and send initial prompt for $repo#$issue; will retry from issue discovery"
     return 1
   fi
   state="$(tmux_state_for_session "$worktree_name")"
@@ -1252,9 +1253,9 @@ start_discovered_issue() {
   fi
 
   append_watch_state_item "$repo" "" "$issue" "$worktree" "$worktree_name"
-  set_status_phase "$key" "progress"
+  set_status_phase "$key" "issue prompt"
   write_status_field "$key" "ci" "not watched"
-  log "watching issue $repo#$issue in $worktree_name after starting agent at $target"
+  log "watching issue $repo#$issue in $worktree_name after starting agent and sending initial prompt at $target"
 }
 
 track_open_pr_for_issue() {
@@ -1673,7 +1674,6 @@ maybe_send_initial_prompt() {
     fi
 
     prompt_seen_in_text "$text" "$prompt" && return 0
-    pane_has_active_work_indicator "$text" && return 0
 
     if agent_current_prompt_line "$text" >/dev/null; then
       log "agent in $target reached idle prompt; sending initial prompt"
