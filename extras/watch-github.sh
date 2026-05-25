@@ -525,7 +525,7 @@ skill_prefix_for_agent() {
   esac
 }
 
-resolve_prompt_for_pr() {
+resolve_prompt_for_pr_resolve() {
   local repo="$1"
   local pr="$2"
   local prefix
@@ -542,7 +542,7 @@ resolve_prompt_for_issue() {
     "$repo" "$issue"
 }
 
-resolve_internal_review_prompt() {
+resolve_prompt_for_pr_create() {
   local pr_repo="$1"
   local prefix
 
@@ -1149,24 +1149,20 @@ start_discovered_issue() {
 
   if tmux_session_exists "$worktree_name"; then
     log "killing existing tmux session $worktree_name before starting issue agent"
-    if ! tmux kill-session -t "=$worktree_name" 2>/dev/null && tmux_session_exists "$worktree_name"; then
+    if ! tmux kill-session -t "=$worktree_name" 2>/dev/null; then
       log "failed to kill existing tmux session $worktree_name"
       return 1
     fi
-    if [[ ! -d "$worktree" ]]; then
-      if [[ -e "$worktree" ]]; then
-        log "issue worktree path is not a directory after tmux recovery: $worktree"
-        return 1
-      fi
-      log "issue worktree is missing after tmux recovery for $repo#$issue; creating it"
-      worktree="$(create_issue_worktree "$repo" "$issue")" || return 1
+    if tmux_session_exists "$worktree_name"; then
+      log "tmux session $worktree_name still exists after kill"
+      return 1
     fi
-  else
-    if [[ -e "$worktree" ]]; then
-      delete_issue_worktree "$issue" "$worktree" || return 1
-    fi
-    worktree="$(create_issue_worktree "$repo" "$issue")" || return 1
   fi
+
+  if [[ -e "$worktree" ]]; then
+    delete_issue_worktree "$issue" "$worktree" || return 1
+  fi
+  worktree="$(create_issue_worktree "$repo" "$issue")" || return 1
   clear_issue_agent_state "$worktree_name"
 
   if ! target="$(ensure_agent_target "$worktree_name" "$worktree")"; then
@@ -1190,6 +1186,7 @@ track_open_pr_for_issue() {
   local repo="$1"
   local issue="$2"
   local pr_url="$3"
+  local issue_tracked=false
   local pr_repo pr_number worktree session
 
   if ! parse_github_pr_url "$pr_url" pr_repo pr_number; then
@@ -1204,12 +1201,18 @@ track_open_pr_for_issue() {
     return 0
   fi
 
-  if ! watch_state_find_item "$repo" "" "$issue" worktree session; then
+  if watch_state_find_item "$repo" "" "$issue" worktree session; then
+    issue_tracked=true
+  else
     worktree="$(issue_worktree_path "$issue")"
     session="$(issue_worktree_name "$issue")"
   fi
 
-  replace_watch_state_item "$repo" "" "$issue" "$pr_repo" "$pr_number" "$worktree" "$session"
+  if "$issue_tracked"; then
+    replace_watch_state_item "$repo" "" "$issue" "$pr_repo" "$pr_number" "$worktree" "$session"
+  else
+    append_watch_state_item "$pr_repo" "$pr_number" "" "$worktree" "$session"
+  fi
   record_status_event "$(state_key_for "$pr_repo" "$pr_number")" "PR discovered"
 }
 
@@ -1234,7 +1237,9 @@ process_discovered_issue() {
   esac
 
   if watch_state_find_item "$repo" "" "$issue" worktree session; then
-    process_issue_item "$repo" "$issue" "$worktree" "$session"
+    if ! process_issue_item "$repo" "$issue" "$worktree" "$session"; then
+      start_discovered_issue "$repo" "$issue" || true
+    fi
     return 0
   fi
 
@@ -2067,7 +2072,7 @@ dispatch_watch_prompt() {
 
   log "dispatching prompt for $repo#$pr to tmux session $session (comments=$comment_count, ci_failures=$ci_failure_count)"
   target="$(ensure_agent_target "$session" "$worktree")" || return 1
-  prompt="$(resolve_prompt_for_pr "$repo" "$pr")"
+  prompt="$(resolve_prompt_for_pr_resolve "$repo" "$pr")"
   send_prompt_to_target "$target" "$prompt" || return 1
   log "sent prompt for $repo#$pr to $target"
 }
@@ -2077,7 +2082,7 @@ process_issue_item() {
   local issue="$2"
   local worktree="$3"
   local session="$4"
-  local key state target prompt pr_base_repo compare_status
+  local key state target text prompt pr_base_repo compare_status
 
   key="$(state_key_for_issue "$repo" "$issue")"
   ensure_status_defaults "$key"
@@ -2085,8 +2090,19 @@ process_issue_item() {
   write_status_field_if_absent "$key" "phase" "progress"
 
   state="$(tmux_state_for_session "$session")"
+  if [[ "$state" == "no session" || "$state" == "unknown" ]]; then
+    log "removing stale issue row for $repo#$issue because agent state is $state"
+    remove_watch_state_item "$repo" "" "$issue"
+    return 1
+  fi
   [[ "$state" == "idle" ]] || return 0
   target="$(target_for_session "$session")"
+  text="$(pane_tail "$target" || true)"
+  if ! target_looks_like_live_agent "$target" "$text"; then
+    log "removing stale issue row for $repo#$issue because agent is not live in $target"
+    remove_watch_state_item "$repo" "" "$issue"
+    return 1
+  fi
 
   if ! pr_base_repo="$(resolve_origin_repo)"; then
     record_status_event "$key" "repo check failed"
@@ -2112,7 +2128,7 @@ process_issue_item() {
     return 0
   fi
 
-  prompt="$(resolve_internal_review_prompt "$pr_base_repo")"
+  prompt="$(resolve_prompt_for_pr_create "$pr_base_repo")"
   if send_prompt_to_target "$target" "$prompt"; then
     write_status_field "$key" "phase" "create PR"
     record_status_event "$key" "create PR"
