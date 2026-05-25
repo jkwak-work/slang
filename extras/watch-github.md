@@ -5,83 +5,79 @@ internal state file. When a new comment or review appears, or CI starts failing,
 reuses a tmux session rooted in the PR worktree and sends:
 
 ```text
-<skill-prefix>slang-pr-resolve-comments <PR_NUMBER>
+<skill-prefix>slang-pr-resolve-comments <PR_URL>
 ```
 
 The watch list is internal state managed by the surrounding workflow. It is read from
 `STATE_DIR/watch-github.conf`; this document intentionally does not define that file format as a
-public interface.
+public interface. Recoverable errors during polling, such as malformed watch-state rows or
+temporary GitHub/path lookup failures, are logged and skipped for that poll instead of terminating
+the watcher.
 
 The watcher also discovers open issues in the configured issue repository that are assigned to
-`@me`, have the `Copilot` label, and do not already have an open linked or closing PR. Closed
-linked PRs are ignored for discovery. For each new issue it creates `issue-N` with
-`extras/git-worktree-add.sh --issue N issue-N`, starts a tmux session named `issue-N`, and starts
-the selected agent in that worktree. The issue is added to watch state only after the agent starts
-successfully, so setup failures retry from issue discovery on the next poll. If an `issue-N`
-worktree already exists, discovery skips worktree creation; if an `issue-N` tmux session already
-exists from a partial setup, discovery resumes that session instead of starting over.
+`@me` and have the `Copilot` label. For each issue, it lists related PRs from GitHub issue
+metadata and timeline references. If any related PR is open, the watcher tracks that PR instead of
+starting issue work.
 
-For issue rows, the watcher treats the agent as idle when the captured pane screen repeats across
-polling checks. When the agent is idle, it compares the worktree HEAD with the target
-repository default branch. If they match, it sends the initial issue prompt. If the worktree has a
-new commit and there is no open PR for the branch on the target repository, it sends
-`slang-pr-create --repo <origin-repo>`. If there is already an open PR for the branch, it sends
-`slang-pr-resolve-comments <PR URL>` and replaces the issue row with the PR URL.
+If there is no open related PR and the issue is not already tracked, the watcher first checks for
+an existing `issue-N` tmux session. If one exists, it treats that as failed setup recovery, kills
+the session, and starts a fresh agent in the existing worktree, creating the worktree only if it is
+missing. If no tmux session exists, an old `issue-N` worktree is deleted because it may be leftover
+or corrupted, then a fresh worktree is created with `extras/git-worktree-add.sh --issue N issue-N`.
+The issue is added to watch state only after the new agent is live.
+
+For tracked issue rows, the watcher treats the agent as idle when the captured pane screen repeats
+across polling checks. When the agent is idle, it compares the worktree HEAD with the target
+repository default branch. If they match, it sends the issue prompt. If the worktree has a new
+commit, it sends `slang-pr-create <origin-repo>`.
 
 ## Issue State Flow
 
 ```mermaid
 flowchart TD
-    A[Poll assigned Copilot issues] --> B{Issue already watched or has open linked PR?}
-    B -- yes --> Z[Skip]
-    B -- no --> C[Create or reuse issue-N worktree]
-    C --> D[Start or reuse issue-N tmux agent]
-    D --> E{Agent started?}
-    E -- no --> A
-    E -- yes --> F[Add issue row to watch state]
-
-    F --> G[Poll watch state]
-    G --> H{Agent screen idle?}
-    H -- no --> G
-    H -- yes --> I{HEAD equals target default branch?}
-    I -- yes --> J[Send issue prompt]
-    J --> G
-    I -- no --> K{Open PR exists for branch?}
-    K -- no --> L[Send slang-pr-create --repo origin-repo]
-    L --> G
-    K -- yes --> M[Send slang-pr-resolve-comments PR URL]
-    M --> N[Replace issue row with PR row]
-    N --> O[Watch PR comments and CI]
+    A(Poll an issue assigned to `@me` with `Copilot` label) --> B{does it have an open PR?}
+    B -- no --> G{Is the issue tracked in `watch-state`?}
+    G -- yes --> E{Agent screen idle?}
+    G -- no --> O{Is there a tmux session for the issue}
+    O -- no --> P{Is there a worktree for the issue}
+    O -- yes --> S[kill the tmux session]
+    S --> D[Create tmux and spawn an agent]
+    P -- yes --> Q[Delete the worktree; because it might be corrupted]
+    Q --> R[Create a new worktree]
+    P -- no --> R
+    R --> D
+    D --> H[Track the issue in `watch-state`]
+    H --> F
+    E -- no --> F[Wait until the next iteration]
+    F --> A
+    E -- yes --> I{There are new commits?}
+    I -- no --> J>Prompt to work on the issue and commit the changes]
+    J --> F
+    I -- yes --> K>Prompt `slang-pr-create` skill]
+    K --> F
+    B -- yes --> L{Is the PR tracked in `watch-state`}
+    L -- no --> M[Replace issue row with PR row]
+    M --> F
+    L -- yes --> Z(((Continue with PR state flow)))
 ```
 
 ## PR State Flow
 
 ```mermaid
 flowchart TD
-    A[Poll watch-state PR rows] --> B[Fetch comments, review comments, and reviews]
-    A --> C{CI watch enabled?}
-    C -- yes --> D[Fetch PR checks]
-    C -- no --> E[Mark CI not watched]
-
-    B --> F{New comment or review event?}
-    D --> G{CI signature changed?}
-    E --> H[No CI trigger]
-
-    F -- yes --> I[Dispatch slang-pr-resolve-comments PR number]
-    F -- no --> J[No comment trigger]
-    G -- failing --> I
-    G -- pending --> K[Record pending CI]
-    G -- cleared --> L[Record CI cleared]
-    G -- unchanged --> H
-
-    I --> M[Agent works in PR tmux session]
-    J --> N[Update status fields]
-    H --> N
-    K --> N
-    L --> N
+    A(Poll a watch-state PR row) --> B[Fetch reviews and comments]
+    B --> C[Fetch CI status]
+    C --> F{Are there new comments? Or CI signature is failing?}
+    F -- yes --> I>Prompt `slang-pr-resolve-comments` skill]
+    I --> M[Mark `status` as addressing comments]
     M --> N
-    N --> O[Print one-line loop status]
-    O --> A
+    F -- no --> G{CI signature}
+    G -- pending --> K[Mark `status` as `CI pending`]
+    G -- passing --> L[Mark `status` as `CI passing`]
+    G -- unchanged --> N
+    K --> N[Update and print `status`]
+    L --> N
+    N --> A
 ```
 
 ## Usage

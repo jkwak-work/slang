@@ -235,8 +235,10 @@ path_for_host_command() {
   local path="$2"
 
   if command_uses_windows_paths "$command_name"; then
-    command -v wslpath >/dev/null 2>&1 ||
-      die "missing required command for Windows path conversion: wslpath"
+    if ! command -v wslpath >/dev/null 2>&1; then
+      log "missing required command for Windows path conversion: wslpath"
+      return 1
+    fi
     wslpath -w "$path"
   else
     printf '%s\n' "$path"
@@ -303,7 +305,8 @@ resolve_default_branch() {
     return 0
   fi
 
-  die "failed to determine default branch; set DEFAULT_BRANCH explicitly"
+  log "failed to determine default branch; set DEFAULT_BRANCH explicitly"
+  return 1
 }
 
 require_default_branch() {
@@ -313,7 +316,8 @@ require_default_branch() {
     die "failed to determine current branch"
   [[ -n "$current_branch" ]] || die "must be run from the default branch; HEAD is detached"
 
-  default_branch="$(resolve_default_branch)"
+  default_branch="$(resolve_default_branch)" ||
+    die "failed to determine default branch; set DEFAULT_BRANCH explicitly"
   [[ "$current_branch" == "$default_branch" ]] ||
     die "must be run from the default branch ($default_branch); current branch is $current_branch"
 }
@@ -354,10 +358,14 @@ resolve_origin_repo() {
     return 0
   fi
 
-  origin_url="$("$GIT_COMMAND" remote get-url origin 2>/dev/null)" ||
-    die "failed to read origin remote URL"
-  origin_repo="$(repo_from_github_url "$origin_url")" ||
-    die "origin remote is not a GitHub repository URL; set PR_BASE_REPO explicitly"
+  if ! origin_url="$("$GIT_COMMAND" remote get-url origin 2>/dev/null)"; then
+    log "failed to read origin remote URL"
+    return 1
+  fi
+  if ! origin_repo="$(repo_from_github_url "$origin_url")"; then
+    log "origin remote is not a GitHub repository URL; set PR_BASE_REPO explicitly"
+    return 1
+  fi
   printf '%s\n' "$origin_repo"
 }
 
@@ -369,9 +377,14 @@ resolve_issue_repo() {
     return 0
   fi
 
-  repo="$("$GH_COMMAND" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" ||
-    die "failed to determine GitHub issue repo; set WATCH_ISSUE_REPO explicitly"
-  [[ -n "$repo" ]] || die "failed to determine GitHub issue repo; set WATCH_ISSUE_REPO explicitly"
+  if ! repo="$("$GH_COMMAND" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)"; then
+    log "failed to determine GitHub issue repo; set WATCH_ISSUE_REPO explicitly"
+    return 1
+  fi
+  if [[ -z "$repo" ]]; then
+    log "failed to determine GitHub issue repo; set WATCH_ISSUE_REPO explicitly"
+    return 1
+  fi
   printf '%s\n' "$repo"
 }
 
@@ -380,7 +393,7 @@ resolve_repo_default_branch() {
   local branch
 
   branch="$("$GH_COMMAND" repo view "$repo" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
-  [[ -n "$branch" ]] || branch="$(resolve_default_branch)"
+  [[ -n "$branch" ]] || branch="$(resolve_default_branch)" || return 1
   printf '%s\n' "$branch"
 }
 
@@ -513,19 +526,12 @@ skill_prefix_for_agent() {
 }
 
 resolve_prompt_for_pr() {
-  local pr="$1"
+  local repo="$1"
+  local pr="$2"
   local prefix
 
   prefix="$(skill_prefix_for_agent)"
-  printf '%s%s %s\n' "$prefix" "$RESOLVE_SKILL" "$pr"
-}
-
-resolve_prompt_for_pr_url() {
-  local pr_url="$1"
-  local prefix
-
-  prefix="$(skill_prefix_for_agent)"
-  printf '%s%s %s\n' "$prefix" "$RESOLVE_SKILL" "$pr_url"
+  printf '%s%s https://github.com/%s/pull/%s\n' "$prefix" "$RESOLVE_SKILL" "$repo" "$pr"
 }
 
 resolve_prompt_for_issue() {
@@ -541,7 +547,7 @@ resolve_internal_review_prompt() {
   local prefix
 
   prefix="$(skill_prefix_for_agent)"
-  printf '%s%s --repo %s\n' "$prefix" "$PR_CREATE_SKILL" "$pr_repo"
+  printf '%s%s %s\n' "$prefix" "$PR_CREATE_SKILL" "$pr_repo"
 }
 
 parse_status_issue_url() {
@@ -607,37 +613,55 @@ parse_watch_state_fields() {
   [[ "$line" =~ ^# ]] && return 1
 
   read -r first second third fourth extra <<<"$line"
-  [[ -z "${extra:-}" ]] || die "too many fields in watch state line: $raw"
+  if [[ -n "${extra:-}" ]]; then
+    log "too many fields in watch state line: $raw"
+    return 1
+  fi
   [[ -n "${first:-}" ]] || return 1
   value_pr=""
   value_issue=""
 
   if [[ "$first" =~ ^https://github\.com/([^[:space:]]+/[^[:space:]]+)/pull/([0-9]+)/*$ ]]; then
-    [[ -z "${fourth:-}" ]] || die "too many fields in watch state line: $raw"
+    if [[ -n "${fourth:-}" ]]; then
+      log "too many fields in watch state line: $raw"
+      return 1
+    fi
     value_repo="${BASH_REMATCH[1]}"
     value_pr="${BASH_REMATCH[2]}"
     value_worktree="${second:-}"
     value_session="${third:-}"
   elif [[ "$first" =~ ^https://github\.com/([^[:space:]]+/[^[:space:]]+)/issues/([0-9]+)/*$ ]]; then
-    [[ -z "${fourth:-}" ]] || die "too many fields in watch state line: $raw"
+    if [[ -n "${fourth:-}" ]]; then
+      log "too many fields in watch state line: $raw"
+      return 1
+    fi
     value_repo="${BASH_REMATCH[1]}"
     value_issue="${BASH_REMATCH[2]}"
     value_worktree="${second:-}"
     value_session="${third:-}"
   elif [[ "$first" =~ ^([^[:space:]]+/[^#[:space:]]+)#([0-9]+)$ ]]; then
-    [[ -z "${fourth:-}" ]] || die "too many fields in watch state line: $raw"
+    if [[ -n "${fourth:-}" ]]; then
+      log "too many fields in watch state line: $raw"
+      return 1
+    fi
     value_repo="${BASH_REMATCH[1]}"
     value_pr="${BASH_REMATCH[2]}"
     value_worktree="${second:-}"
     value_session="${third:-}"
   elif [[ "$first" =~ ^([^[:space:]]+/[^[:space:]]+)/pull/([0-9]+)$ ]]; then
-    [[ -z "${fourth:-}" ]] || die "too many fields in watch state line: $raw"
+    if [[ -n "${fourth:-}" ]]; then
+      log "too many fields in watch state line: $raw"
+      return 1
+    fi
     value_repo="${BASH_REMATCH[1]}"
     value_pr="${BASH_REMATCH[2]}"
     value_worktree="${second:-}"
     value_session="${third:-}"
   elif [[ "$first" =~ ^([^[:space:]]+/[^[:space:]]+)/issues/([0-9]+)$ ]]; then
-    [[ -z "${fourth:-}" ]] || die "too many fields in watch state line: $raw"
+    if [[ -n "${fourth:-}" ]]; then
+      log "too many fields in watch state line: $raw"
+      return 1
+    fi
     value_repo="${BASH_REMATCH[1]}"
     value_issue="${BASH_REMATCH[2]}"
     value_worktree="${second:-}"
@@ -649,13 +673,23 @@ parse_watch_state_fields() {
     value_session="${fourth:-}"
   fi
 
-  [[ -n "$value_repo" && -n "$value_worktree" ]] || die "bad watch state line: $raw"
+  if [[ -z "$value_repo" || -z "$value_worktree" ]]; then
+    log "bad watch state line: $raw"
+    return 1
+  fi
   if [[ -n "$value_pr" ]]; then
-    [[ "$value_pr" =~ ^[0-9]+$ ]] || die "bad PR number in watch state line: $raw"
+    if [[ ! "$value_pr" =~ ^[0-9]+$ ]]; then
+      log "bad PR number in watch state line: $raw"
+      return 1
+    fi
   elif [[ -n "$value_issue" ]]; then
-    [[ "$value_issue" =~ ^[0-9]+$ ]] || die "bad issue number in watch state line: $raw"
+    if [[ ! "$value_issue" =~ ^[0-9]+$ ]]; then
+      log "bad issue number in watch state line: $raw"
+      return 1
+    fi
   else
-    die "bad watch state line: $raw"
+    log "bad watch state line: $raw"
+    return 1
   fi
 
   if [[ -z "$value_session" ]]; then
@@ -667,7 +701,10 @@ parse_watch_state_fields() {
   else
     value_session="$(sanitize_name "$value_session")"
   fi
-  [[ -n "$value_session" ]] || die "empty tmux session name for watch state line: $raw"
+  if [[ -z "$value_session" ]]; then
+    log "empty tmux session name for watch state line: $raw"
+    return 1
+  fi
 
   printf -v "$repo_var" '%s' "$value_repo"
   printf -v "$pr_var" '%s' "$value_pr"
@@ -702,29 +739,47 @@ read_watch_state() {
     if [[ "$WATCH_COPILOT_ISSUES" == "true" ]]; then
       : >"$WATCH_STATE_FILE"
     else
-      die "watch state file not found: $WATCH_STATE_FILE"
+      log "watch state file not found: $WATCH_STATE_FILE"
+      return 1
     fi
   fi
   while IFS= read -r line || [[ -n "$line" ]]; do
     parse_watch_state_line "$line"
   done <"$WATCH_STATE_FILE"
 
-  [[ "${#REPOS[@]}" -gt 0 || "$WATCH_COPILOT_ISSUES" == "true" ]] ||
-    die "watch state contains no items: $WATCH_STATE_FILE"
+  if [[ "${#REPOS[@]}" -eq 0 && "$WATCH_COPILOT_ISSUES" != "true" ]]; then
+    log "watch state contains no items: $WATCH_STATE_FILE"
+    return 1
+  fi
 }
 
 watch_state_has_item() {
   local repo="$1"
   local pr="$2"
   local issue="$3"
+  local worktree session
+
+  watch_state_find_item "$repo" "$pr" "$issue" worktree session
+}
+
+watch_state_find_item() {
+  local repo="$1"
+  local pr="$2"
+  local issue="$3"
+  local worktree_var="$4"
+  local session_var="$5"
   local i
 
   for ((i = 0; i < ${#REPOS[@]}; i++)); do
     [[ "${REPOS[$i]}" == "$repo" ]] || continue
     if [[ -n "$pr" && "${PRS[$i]}" == "$pr" ]]; then
+      printf -v "$worktree_var" '%s' "${WORKTREES[$i]}"
+      printf -v "$session_var" '%s' "${SESSIONS[$i]}"
       return 0
     fi
     if [[ -n "$issue" && "${ISSUES[$i]}" == "$issue" ]]; then
+      printf -v "$worktree_var" '%s' "${WORKTREES[$i]}"
+      printf -v "$session_var" '%s' "${SESSIONS[$i]}"
       return 0
     fi
   done
@@ -786,6 +841,32 @@ replace_watch_state_item() {
 
   mv "$tmp" "$WATCH_STATE_FILE"
   log "updated watch-state item to https://github.com/$new_repo/pull/$new_pr worktree=$worktree session=$session"
+  read_watch_state >/dev/null || true
+}
+
+remove_watch_state_item() {
+  local old_repo="$1"
+  local old_pr="$2"
+  local old_issue="$3"
+  local tmp line repo pr issue parsed_worktree parsed_session removed=false
+
+  tmp="$(mktemp)"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if parse_watch_state_fields "$line" repo pr issue parsed_worktree parsed_session 2>/dev/null &&
+      [[ "$repo" == "$old_repo" ]] &&
+      { [[ -n "$old_pr" && "$pr" == "$old_pr" ]] ||
+        [[ -n "$old_issue" && "$issue" == "$old_issue" ]]; }; then
+      removed=true
+      continue
+    fi
+    printf '%s\n' "$line" >>"$tmp"
+  done <"$WATCH_STATE_FILE"
+
+  mv "$tmp" "$WATCH_STATE_FILE"
+  if "$removed"; then
+    log "removed watch-state item for $old_repo#${old_pr:-$old_issue}"
+    read_watch_state >/dev/null || true
+  fi
 }
 
 parse_github_pr_url() {
@@ -799,16 +880,121 @@ parse_github_pr_url() {
   printf -v "$pr_var" '%s' "${BASH_REMATCH[2]}"
 }
 
-branch_for_worktree() {
-  local worktree="$1"
-  git_in_worktree "$worktree" branch --show-current 2>/dev/null
+pr_url_is_open() {
+  local pr_url="$1"
+  local repo pr state
+
+  parse_github_pr_url "$pr_url" repo pr || return 2
+  state="$("$GH_COMMAND" api "repos/$repo/pulls/$pr" --jq '.state // ""' </dev/null 2>/dev/null | tr -d '\r')" ||
+    return 2
+  [[ "${state,,}" == "open" ]]
+}
+
+related_pr_urls_for_issue() {
+  local repo="$1"
+  local issue="$2"
+  local refs_file timeline_file rc
+
+  refs_file="$(mktemp)"
+  timeline_file="$(mktemp)"
+
+  if ! "$GH_COMMAND" issue view "$issue" \
+    --repo "$repo" \
+    --json closedByPullRequestsReferences \
+    --jq '.closedByPullRequestsReferences[]?.url' >"$refs_file" </dev/null; then
+    rm -f "$refs_file" "$timeline_file"
+    return 1
+  fi
+
+  if ! "$GH_COMMAND" api --paginate \
+    "repos/$repo/issues/$issue/timeline?per_page=$COMMENT_PAGE_SIZE" >"$timeline_file" </dev/null; then
+    rm -f "$refs_file" "$timeline_file"
+    return 1
+  fi
+
+  {
+    cat "$refs_file"
+    jq -r '
+      .[] |
+      [(.source.issue? // empty), (.subject? // empty)][] |
+      select(.pull_request? != null) |
+      (.html_url // .pull_request.html_url // empty)
+    ' "$timeline_file"
+  } | awk 'NF' | sort -u
+  rc=$?
+
+  rm -f "$refs_file" "$timeline_file"
+  return "$rc"
+}
+
+open_related_prs_for_issue() {
+  local repo="$1"
+  local issue="$2"
+  local related_file pr_url rc
+  local has_open=false inspect_failed=false
+
+  related_file="$(mktemp)"
+  if ! related_pr_urls_for_issue "$repo" "$issue" >"$related_file"; then
+    rm -f "$related_file"
+    return 2
+  fi
+
+  while IFS= read -r pr_url; do
+    [[ -n "$pr_url" ]] || continue
+    pr_url_is_open "$pr_url"
+    rc=$?
+    case "$rc" in
+      0)
+        printf '%s\n' "$pr_url"
+        has_open=true
+        ;;
+      1)
+        ;;
+      *)
+        inspect_failed=true
+        ;;
+    esac
+  done <"$related_file"
+
+  rm -f "$related_file"
+  if "$inspect_failed"; then
+    return 2
+  fi
+  "$has_open"
+}
+
+first_open_related_pr_for_issue() {
+  local repo="$1"
+  local issue="$2"
+  local open_prs_file first_pr rc
+
+  open_prs_file="$(mktemp)"
+  open_related_prs_for_issue "$repo" "$issue" >"$open_prs_file"
+  rc=$?
+  case "$rc" in
+    0)
+      IFS= read -r first_pr <"$open_prs_file" || first_pr=""
+      rm -f "$open_prs_file"
+      [[ -n "$first_pr" ]] || return 1
+      printf '%s\n' "$first_pr"
+      return 0
+      ;;
+    1)
+      rm -f "$open_prs_file"
+      return 1
+      ;;
+    *)
+      rm -f "$open_prs_file"
+      return 2
+      ;;
+  esac
 }
 
 git_in_worktree() {
   local worktree="$1"
   local git_worktree
   shift
-  git_worktree="$(path_for_git_path_arg "$worktree")"
+  git_worktree="$(path_for_git_path_arg "$worktree")" || return 1
   "$GIT_COMMAND" -C "$git_worktree" "$@" | tr -d '\r'
 }
 
@@ -823,7 +1009,7 @@ worktree_head_matches_base() {
   local pr_repo="$2"
   local base_branch head_sha base_sha
 
-  base_branch="$(resolve_repo_default_branch "$pr_repo")"
+  base_branch="$(resolve_repo_default_branch "$pr_repo")" || return 2
   head_sha="$(git_commit_for_ref "$worktree" HEAD || true)"
   base_sha="$(git_commit_for_ref "$worktree" "refs/remotes/origin/$base_branch" || true)"
   [[ -n "$base_sha" ]] || base_sha="$(git_commit_for_ref "$worktree" "origin/$base_branch" || true)"
@@ -838,7 +1024,7 @@ worktree_head_matches_base() {
 
 fetch_copilot_issues() {
   local repo="$1"
-  local issues_file issue rc
+  local issues_file
 
   issues_file="$(mktemp)"
   if ! "$GH_COMMAND" issue list \
@@ -853,113 +1039,135 @@ fetch_copilot_issues() {
     return 1
   fi
 
-  while IFS= read -r issue; do
-    [[ -n "$issue" ]] || continue
-    issue_has_open_linked_pr "$repo" "$issue"
-    rc=$?
-    case "$rc" in
-      0)
-        ;;
-      1)
-        printf '%s\n' "$issue"
-        ;;
-      *)
-        log "failed to inspect linked PRs for $repo#$issue"
-        ;;
-    esac
-  done <"$issues_file"
-
+  cat "$issues_file"
   rm -f "$issues_file"
 }
 
-issue_has_open_linked_pr() {
-  local repo="$1"
-  local issue="$2"
-  local timeline_file rc
+issue_worktree_name() {
+  local issue="$1"
+  printf 'issue-%s\n' "$issue"
+}
 
-  timeline_file="$(mktemp)"
-  if ! "$GH_COMMAND" api --paginate \
-    "repos/$repo/issues/$issue/timeline?per_page=$COMMENT_PAGE_SIZE" >"$timeline_file"; then
-    rm -f "$timeline_file"
-    return 2
+issue_worktree_path() {
+  local issue="$1"
+  printf '%s/%s\n' "$(dirname "$(pwd -P)")" "$(issue_worktree_name "$issue")"
+}
+
+issue_worktree_path_is_safe_to_delete() {
+  local issue="$1"
+  local worktree="$2"
+  local expected
+
+  expected="$(issue_worktree_path "$issue")"
+  [[ "$worktree" == "$expected" && "$(basename "$worktree")" == "$(issue_worktree_name "$issue")" ]]
+}
+
+delete_issue_worktree() {
+  local issue="$1"
+  local worktree="$2"
+  local git_worktree
+
+  [[ -e "$worktree" ]] || return 0
+  if ! issue_worktree_path_is_safe_to_delete "$issue" "$worktree"; then
+    log "refusing to delete unexpected issue worktree path: $worktree"
+    return 1
   fi
 
-  jq -se '
-    def linked_issue: (.source.issue? // .subject? // {});
-    any(
-      .[][];
-      (linked_issue.pull_request? != null) and
-      (((linked_issue.state // "") | ascii_downcase) == "open")
-    )
-  ' "$timeline_file" >/dev/null
-  rc=$?
-  rm -f "$timeline_file"
+  log "deleting existing issue worktree $(basename "$worktree") before rediscovery"
+  git_worktree="$(path_for_git_path_arg "$worktree")" || return 1
+  if ! "$GIT_COMMAND" worktree remove --force --force "$git_worktree" >/dev/null 2>&1; then
+    log "git worktree remove failed for $worktree; removing directory directly"
+  fi
+  "$GIT_COMMAND" worktree prune >/dev/null 2>&1 || true
+  if [[ -e "$worktree" ]]; then
+    rm -rf -- "$worktree" || {
+      log "failed to delete issue worktree directory: $worktree"
+      return 1
+    }
+    "$GIT_COMMAND" worktree prune >/dev/null 2>&1 || true
+  fi
+}
 
-  case "$rc" in
-    0) return 0 ;;
-    1) return 1 ;;
-    *) return 2 ;;
-  esac
+clear_issue_agent_state() {
+  local session="$1"
+  local target safe_target
+
+  for target in "$session:$AGENT_WINDOW_NAME.0" "$session:0.0"; do
+    safe_target="$(sanitize_name "$target")"
+    rm -f \
+      "$STATE_DIR/$safe_target.idle-screen" \
+      "$STATE_DIR/$safe_target.idle-screen-signature" \
+      "$STATE_DIR/$safe_target.last-prompt"
+  done
 }
 
 create_issue_worktree() {
   local repo="$1"
   local issue="$2"
-  local worktree_name="issue-$issue"
-  local worktree worktree_log
+  local worktree_name worktree worktree_log git_worktree
 
-  if [[ -n "$(read_status_field "$(state_key_for_issue "$repo" "$issue")" "completed-pr" "")" ]]; then
+  worktree_name="$(issue_worktree_name "$issue")"
+  worktree="$(issue_worktree_path "$issue")"
+
+  worktree_log="$STATE_DIR/$(state_key_for_issue "$repo" "$issue").worktree-add.log"
+
+  if [[ -e "$worktree" ]]; then
+    log "issue worktree still exists before creation: $worktree"
     return 1
   fi
 
-  worktree="$(dirname "$(pwd -P)")/$worktree_name"
-  worktree_log="$STATE_DIR/$(state_key_for_issue "$repo" "$issue").worktree-add.log"
-  if [[ ! -d "$worktree" ]]; then
-    log "creating issue worktree $worktree_name for $repo#$issue"
-    if ! GH_REPO="$repo" GIT_EXE="$GIT_COMMAND" GH_EXE="$GH_COMMAND" \
-      extras/git-worktree-add.sh --issue "$issue" "$worktree_name" >"$worktree_log" 2>&1; then
-      log "git-worktree-add failed for $repo#$issue; see $worktree_log"
+  log "creating issue worktree $worktree_name for $repo#$issue"
+  if "$GIT_COMMAND" show-ref --verify --quiet "refs/heads/$worktree_name"; then
+    git_worktree="$(path_for_git_path_arg "$worktree")" || return 1
+    printf '[%s] Reusing existing local branch: %s\n' "$(date '+%H:%M:%S')" "$worktree_name" >"$worktree_log"
+    if ! "$GIT_COMMAND" worktree add -q "$git_worktree" "$worktree_name" >>"$worktree_log" 2>&1; then
+      log "git worktree add failed for existing branch $worktree_name; see $worktree_log"
       return 1
     fi
-  else
-    log "resuming existing issue worktree $worktree_name for $repo#$issue"
+    if [[ -f "$worktree/.gitmodules" ]] &&
+      ! "$GIT_COMMAND" -C "$git_worktree" submodule -q update --init --recursive --jobs 0 >>"$worktree_log" 2>&1; then
+      log "submodule update failed for existing branch $worktree_name; see $worktree_log"
+      return 1
+    fi
+  elif ! GH_REPO="$repo" GIT_EXE="$GIT_COMMAND" GH_EXE="$GH_COMMAND" \
+    extras/git-worktree-add.sh --issue "$issue" "$worktree_name" >"$worktree_log" 2>&1; then
+    log "git-worktree-add failed for $repo#$issue; see $worktree_log"
+    return 1
   fi
 
   printf '%s\n' "$worktree"
 }
 
-worktree_for_existing_issue_session() {
-  local session="$1"
-  local expected_worktree="$2"
-  local session_path
-
-  if session_path="$(current_path_for_session "$session")"; then
-    printf '%s\n' "$session_path"
-    return 0
-  fi
-
-  [[ -d "$expected_worktree" ]] || return 1
-  printf '%s\n' "$expected_worktree"
-}
-
 start_discovered_issue() {
   local repo="$1"
   local issue="$2"
-  local key worktree_name expected_worktree worktree target state
+  local key worktree_name worktree target state
 
   key="$(state_key_for_issue "$repo" "$issue")"
-  worktree_name="issue-$issue"
-  expected_worktree="$(dirname "$(pwd -P)")/$worktree_name"
+  worktree_name="$(issue_worktree_name "$issue")"
+  worktree="$(issue_worktree_path "$issue")"
 
   if tmux_session_exists "$worktree_name"; then
-    log "resuming existing tmux session $worktree_name for $repo#$issue"
-    if ! worktree="$(worktree_for_existing_issue_session "$worktree_name" "$expected_worktree")"; then
-      log "existing tmux session $worktree_name has no usable worktree; will retry from issue discovery"
+    log "killing existing tmux session $worktree_name before starting issue agent"
+    if ! tmux kill-session -t "=$worktree_name" 2>/dev/null && tmux_session_exists "$worktree_name"; then
+      log "failed to kill existing tmux session $worktree_name"
       return 1
     fi
+    if [[ ! -d "$worktree" ]]; then
+      if [[ -e "$worktree" ]]; then
+        log "issue worktree path is not a directory after tmux recovery: $worktree"
+        return 1
+      fi
+      log "issue worktree is missing after tmux recovery for $repo#$issue; creating it"
+      worktree="$(create_issue_worktree "$repo" "$issue")" || return 1
+    fi
   else
+    if [[ -e "$worktree" ]]; then
+      delete_issue_worktree "$issue" "$worktree" || return 1
+    fi
     worktree="$(create_issue_worktree "$repo" "$issue")" || return 1
   fi
+  clear_issue_agent_state "$worktree_name"
 
   if ! target="$(ensure_agent_target "$worktree_name" "$worktree")"; then
     log "failed to start agent for $repo#$issue; will retry from issue discovery"
@@ -978,38 +1186,71 @@ start_discovered_issue() {
   log "watching issue $repo#$issue in $worktree_name after starting agent at $target"
 }
 
+track_open_pr_for_issue() {
+  local repo="$1"
+  local issue="$2"
+  local pr_url="$3"
+  local pr_repo pr_number worktree session
+
+  if ! parse_github_pr_url "$pr_url" pr_repo pr_number; then
+    log "failed to parse related PR URL for $repo#$issue: $pr_url"
+    return 1
+  fi
+
+  if watch_state_has_item "$pr_repo" "$pr_number" ""; then
+    if watch_state_has_item "$repo" "" "$issue"; then
+      remove_watch_state_item "$repo" "" "$issue"
+    fi
+    return 0
+  fi
+
+  if ! watch_state_find_item "$repo" "" "$issue" worktree session; then
+    worktree="$(issue_worktree_path "$issue")"
+    session="$(issue_worktree_name "$issue")"
+  fi
+
+  replace_watch_state_item "$repo" "" "$issue" "$pr_repo" "$pr_number" "$worktree" "$session"
+  record_status_event "$(state_key_for "$pr_repo" "$pr_number")" "PR discovered"
+}
+
+process_discovered_issue() {
+  local repo="$1"
+  local issue="$2"
+  local pr_url rc worktree session
+
+  pr_url="$(first_open_related_pr_for_issue "$repo" "$issue")"
+  rc=$?
+  case "$rc" in
+    0)
+      track_open_pr_for_issue "$repo" "$issue" "$pr_url" || true
+      return 0
+      ;;
+    1)
+      ;;
+    *)
+      log "failed to inspect related PRs for $repo#$issue"
+      return 0
+      ;;
+  esac
+
+  if watch_state_find_item "$repo" "" "$issue" worktree session; then
+    process_issue_item "$repo" "$issue" "$worktree" "$session"
+    return 0
+  fi
+
+  start_discovered_issue "$repo" "$issue" || true
+}
+
 discover_copilot_issues() {
   local repo issue
 
   [[ "$WATCH_COPILOT_ISSUES" == "true" ]] || return 0
-  repo="$(resolve_issue_repo)"
+  repo="$(resolve_issue_repo)" || return 0
 
   while IFS= read -r issue; do
     [[ -n "$issue" ]] || continue
-    watch_state_has_item "$repo" "" "$issue" && continue
-    [[ -n "$(read_status_field "$(state_key_for_issue "$repo" "$issue")" "completed-pr" "")" ]] && continue
-    start_discovered_issue "$repo" "$issue" || true
+    process_discovered_issue "$repo" "$issue"
   done < <({ fetch_copilot_issues "$repo" || log "failed to fetch Copilot issues for $repo"; })
-}
-
-find_open_pr_for_branch() {
-  local repo="$1"
-  local head_owner="$2"
-  local branch="$3"
-
-  "$GH_COMMAND" api "repos/$repo/pulls?head=$head_owner:$branch&state=open" \
-    --jq '.[0].html_url // ""' 2>/dev/null
-}
-
-find_pr_for_issue_worktree() {
-  local worktree="$1"
-  local pr_repo branch head_owner
-
-  pr_repo="$(resolve_origin_repo)"
-  branch="$(branch_for_worktree "$worktree")"
-  [[ -n "$branch" ]] || return 1
-  head_owner="${pr_repo%%/*}"
-  find_open_pr_for_branch "$pr_repo" "$head_owner" "$branch"
 }
 
 fetch_events() {
@@ -1671,10 +1912,11 @@ render_status_dashboard_block() {
     date_value="$(markdown_cell "$(read_status_field "$key" "date" "$(short_status_date)")")"
     trigger_value="$(markdown_cell "$(read_status_field "$key" "trigger" "none")")"
     ci_value="$(markdown_cell "$(read_status_field "$key" "ci" "unknown")")"
-    display_state="$state_raw"
-    if [[ -z "$pr" ]]; then
-      phase="$(read_status_field "$key" "phase" "progress")"
+    phase="$(read_status_field "$key" "phase" "")"
+    if [[ -n "$phase" ]]; then
       display_state="$phase ($state_raw)"
+    else
+      display_state="$state_raw"
     fi
     state_value="$(markdown_cell "$display_state")"
 
@@ -1756,7 +1998,11 @@ maybe_update_status_issue() {
     return 0
   fi
 
-  gh_body_file="$(path_for_gh_file_arg "$new_body_file")"
+  if ! gh_body_file="$(path_for_gh_file_arg "$new_body_file")"; then
+    log "failed to convert status issue body path for $STATUS_ISSUE_REPO#$STATUS_ISSUE_NUMBER"
+    rm -f "$current_file" "$block_file" "$new_body_file"
+    return 0
+  fi
   if "$GH_COMMAND" issue edit "$STATUS_ISSUE_NUMBER" --repo "$STATUS_ISSUE_REPO" --body-file "$gh_body_file" >/dev/null; then
     record_status_issue_update
   else
@@ -1821,7 +2067,7 @@ dispatch_watch_prompt() {
 
   log "dispatching prompt for $repo#$pr to tmux session $session (comments=$comment_count, ci_failures=$ci_failure_count)"
   target="$(ensure_agent_target "$session" "$worktree")" || return 1
-  prompt="$(resolve_prompt_for_pr "$pr")"
+  prompt="$(resolve_prompt_for_pr "$repo" "$pr")"
   send_prompt_to_target "$target" "$prompt" || return 1
   log "sent prompt for $repo#$pr to $target"
 }
@@ -1831,34 +2077,19 @@ process_issue_item() {
   local issue="$2"
   local worktree="$3"
   local session="$4"
-  local key state target prompt pr_url pr_repo pr_number pr_base_repo compare_status
+  local key state target prompt pr_base_repo compare_status
 
   key="$(state_key_for_issue "$repo" "$issue")"
   ensure_status_defaults "$key"
   write_status_field "$key" "ci" "not watched"
   write_status_field_if_absent "$key" "phase" "progress"
 
-  target="$(ensure_agent_target "$session" "$worktree")" || {
-    record_status_event "$key" "dispatch failed"
-    return 0
-  }
-
   state="$(tmux_state_for_session "$session")"
   [[ "$state" == "idle" ]] || return 0
+  target="$(target_for_session "$session")"
 
-  pr_base_repo="$(resolve_origin_repo)"
-  pr_url="$(find_pr_for_issue_worktree "$worktree" || true)"
-  if [[ -n "$pr_url" ]] && parse_github_pr_url "$pr_url" pr_repo pr_number; then
-    prompt="$(resolve_prompt_for_pr_url "$pr_url")"
-    if send_prompt_to_target "$target" "$prompt"; then
-      write_status_field "$key" "completed-pr" "$pr_url"
-      replace_watch_state_item "$repo" "" "$issue" "$pr_repo" "$pr_number" "$worktree" "$session"
-      record_status_event "$(state_key_for "$pr_repo" "$pr_number")" "PR resolve"
-      log "issue $repo#$issue is now tracked as $pr_url"
-    else
-      record_status_event "$key" "dispatch failed"
-      log "failed to send PR resolve prompt for issue $repo#$issue"
-    fi
+  if ! pr_base_repo="$(resolve_origin_repo)"; then
+    record_status_event "$key" "repo check failed"
     return 0
   fi
 
@@ -1899,9 +2130,9 @@ process_watch_item() {
   local session="$4"
   local key comment_state_file events_file new_file new_comment_count
   local ci_state_file checks_file ci_failure_count ci_pending_count previous_signature current_signature
-  local comment_needs_dispatch=false ci_needs_dispatch=false ci_cleared=false ci_primed=false
-  local ci_pending_changed=false
-  local trigger_label
+  local comment_needs_dispatch=false ci_needs_dispatch=false
+  local ci_pending_changed=false ci_passing_changed=false
+  local ci_signature_changed=false ci_state_ready=false ci_was_primed=false
 
   key="$(state_key_for "$repo" "$pr")"
   ensure_status_defaults "$key"
@@ -1945,32 +2176,33 @@ process_watch_item() {
       write_status_field "$key" "ci" "$(ci_status_for_counts "$ci_failure_count" "$ci_pending_count")"
 
       if [[ ! -f "$ci_state_file" ]]; then
-        if [[ "$CI_BOOTSTRAP_MODE" != "trigger" ]]; then
-          printf '%s\n' "$current_signature" >"$ci_state_file"
-          log "primed $repo#$pr CI with $ci_failure_count current failure(s), $ci_pending_count pending check(s)"
-          ci_primed=true
-        else
-          previous_signature=""
-          if [[ "$ci_failure_count" -eq 0 ]]; then
-            printf '%s\n' "$current_signature" >"$ci_state_file"
-            previous_signature="$current_signature"
-          fi
-        fi
+        previous_signature=""
       else
         previous_signature="$(cat "$ci_state_file" 2>/dev/null || true)"
       fi
 
-      if ! "$ci_primed"; then
-        if [[ "$current_signature" != "${previous_signature-}" ]]; then
-          if [[ "$ci_failure_count" -gt 0 ]]; then
-            ci_needs_dispatch=true
-          elif [[ "$ci_pending_count" -gt 0 ]]; then
-            ci_pending_changed=true
-          else
-            ci_cleared=true
-          fi
+      if [[ "$current_signature" != "${previous_signature-}" ]]; then
+        ci_signature_changed=true
+      fi
+
+      if [[ ! -f "$ci_state_file" && "$CI_BOOTSTRAP_MODE" != "trigger" ]]; then
+        printf '%s\n' "$current_signature" >"$ci_state_file"
+        log "primed $repo#$pr CI with $ci_failure_count current failure(s), $ci_pending_count pending check(s)"
+        ci_signature_changed=false
+        ci_was_primed=true
+      fi
+
+      if "$ci_signature_changed"; then
+        if [[ "$ci_failure_count" -gt 0 ]]; then
+          ci_needs_dispatch=true
+        elif [[ "$ci_pending_count" -gt 0 ]]; then
+          ci_pending_changed=true
+        else
+          ci_passing_changed=true
         fi
       fi
+
+      ci_state_ready=true
     else
       write_status_field "$key" "ci" "unknown"
       log "failed to fetch CI checks for $repo#$pr"
@@ -1979,33 +2211,10 @@ process_watch_item() {
     write_status_field "$key" "ci" "not watched"
   fi
 
-  if "$ci_cleared"; then
-    printf '%s\n' "$current_signature" >"$ci_state_file"
-    record_status_event "$key" "CI cleared"
-    log "CI failures cleared for $repo#$pr"
-  fi
-
-  if "$ci_pending_changed"; then
-    printf '%s\n' "$current_signature" >"$ci_state_file"
-    record_status_event "$key" "CI pending"
-    log "CI pending for $repo#$pr"
-  fi
-
   if "$comment_needs_dispatch" || "$ci_needs_dispatch"; then
-    trigger_label=""
-    if "$comment_needs_dispatch"; then
-      trigger_label="comment"
-    fi
-    if "$ci_needs_dispatch"; then
-      if [[ -n "$trigger_label" ]]; then
-        trigger_label="$trigger_label + CI"
-      else
-        trigger_label="CI"
-      fi
-    fi
-
     if dispatch_watch_prompt "$repo" "$pr" "$worktree" "$session" "$new_comment_count" "$ci_failure_count"; then
-      record_status_event "$key" "$trigger_label"
+      write_status_field "$key" "phase" "addressing comments"
+      record_status_event "$key" "addressing comments"
       if "$comment_needs_dispatch"; then
         append_seen_ids "$comment_state_file" "$new_file"
       fi
@@ -2015,6 +2224,24 @@ process_watch_item() {
     else
       record_status_event "$key" "dispatch failed"
       log "dispatch failed for $repo#$pr; will retry pending comment/CI changes on next poll"
+    fi
+  elif "$ci_pending_changed"; then
+    printf '%s\n' "$current_signature" >"$ci_state_file"
+    write_status_field "$key" "phase" "CI pending"
+    record_status_event "$key" "CI pending"
+    log "CI pending for $repo#$pr"
+  elif "$ci_passing_changed"; then
+    printf '%s\n' "$current_signature" >"$ci_state_file"
+    write_status_field "$key" "phase" "CI passing"
+    record_status_event "$key" "CI passing"
+    log "CI passing for $repo#$pr"
+  elif "$ci_was_primed"; then
+    if [[ "$ci_failure_count" -gt 0 ]]; then
+      write_status_field "$key" "phase" "CI failing"
+    elif [[ "$ci_pending_count" -gt 0 ]]; then
+      write_status_field "$key" "phase" "CI pending"
+    elif "$ci_state_ready"; then
+      write_status_field "$key" "phase" "CI passing"
     fi
   fi
 
@@ -2087,6 +2314,9 @@ main() {
   need_command sort
   need_command tail
   need_command tmux
+  if command_uses_windows_paths "$GH_COMMAND" || command_uses_windows_paths "$GIT_COMMAND"; then
+    need_command wslpath
+  fi
 
   log_startup_tools
   require_repo_root
@@ -2097,18 +2327,16 @@ main() {
   trap finish_status_line EXIT
 
   while true; do
-    read_watch_state
-    discover_copilot_issues
-    for ((i = 0; i < ${#REPOS[@]}; i++)); do
-      if [[ -n "${PRS[$i]}" ]]; then
+    if read_watch_state; then
+      discover_copilot_issues
+      for ((i = 0; i < ${#REPOS[@]}; i++)); do
+        [[ -n "${PRS[$i]}" ]] || continue
         process_watch_item "${REPOS[$i]}" "${PRS[$i]}" "${WORKTREES[$i]}" "${SESSIONS[$i]}"
-      else
-        process_issue_item "${REPOS[$i]}" "${ISSUES[$i]}" "${WORKTREES[$i]}" "${SESSIONS[$i]}"
-      fi
-    done
-    monitor_configured_sessions
-    maybe_update_status_issue
+      done
+      monitor_configured_sessions
+    fi
 
+    maybe_update_status_issue
     print_status_line "${#REPOS[@]}" "$POLL_SECONDS"
     "$ONCE" && break
     sleep "$POLL_SECONDS"
