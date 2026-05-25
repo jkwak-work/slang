@@ -103,7 +103,11 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["Poll a watch-state PR row"] --> B["Ensure status defaults"]
-    B --> C{"Fetch comments, review comments, and reviews?"}
+    B --> BA{"Fetch PR state?"}
+    BA -- no --> BB["Set phase `PR state unknown`; skip until next poll"]
+    BA -- yes --> BC{"PR state is `open`?"}
+    BC -- no --> BD["Remove PR row from watch state"]
+    BC -- yes --> C{"Fetch comments, review comments, and reviews?"}
     C -- no --> D["Log comment fetch failure"]
     C -- yes --> E{"Seen-id file exists?"}
     E -- no --> F["Create empty seen-id file"]
