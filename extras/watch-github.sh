@@ -477,16 +477,15 @@ read_status_field() {
 ensure_status_defaults() {
   local key="$1"
   write_status_field_if_absent "$key" "date" "$(short_status_date)"
-  write_status_field_if_absent "$key" "trigger" "none"
   write_status_field_if_absent "$key" "ci" "unknown"
 }
 
-record_status_event() {
+set_status_phase() {
   local key="$1"
-  local trigger="$2"
+  local phase="$2"
 
   write_status_field "$key" "date" "$(short_status_date)"
-  write_status_field "$key" "trigger" "$trigger"
+  write_status_field "$key" "phase" "$phase"
 }
 
 ci_status_for_counts() {
@@ -1176,8 +1175,7 @@ start_discovered_issue() {
   fi
 
   append_watch_state_item "$repo" "" "$issue" "$worktree" "$worktree_name"
-  record_status_event "$key" "issue started"
-  write_status_field "$key" "phase" "progress"
+  set_status_phase "$key" "progress"
   write_status_field "$key" "ci" "not watched"
   log "watching issue $repo#$issue in $worktree_name after starting agent at $target"
 }
@@ -1213,7 +1211,7 @@ track_open_pr_for_issue() {
   else
     append_watch_state_item "$pr_repo" "$pr_number" "" "$worktree" "$session"
   fi
-  record_status_event "$(state_key_for "$pr_repo" "$pr_number")" "PR discovered"
+  set_status_phase "$(state_key_for "$pr_repo" "$pr_number")" "PR discovered"
 }
 
 process_discovered_issue() {
@@ -1886,7 +1884,7 @@ markdown_cell() {
 render_status_dashboard_block() {
   local output_file="$1"
   local rows_file i repo pr issue session key label item_url phase
-  local date_value trigger_value ci_value state_raw previous_state state_value display_state
+  local date_value phase_value ci_value state_raw previous_state state_value
 
   rows_file="$(mktemp)"
   for ((i = 0; i < ${#REPOS[@]}; i++)); do
@@ -1915,18 +1913,13 @@ render_status_dashboard_block() {
     fi
 
     date_value="$(markdown_cell "$(read_status_field "$key" "date" "$(short_status_date)")")"
-    trigger_value="$(markdown_cell "$(read_status_field "$key" "trigger" "none")")"
+    phase="$(read_status_field "$key" "phase" "none")"
+    phase_value="$(markdown_cell "$phase")"
     ci_value="$(markdown_cell "$(read_status_field "$key" "ci" "unknown")")"
-    phase="$(read_status_field "$key" "phase" "")"
-    if [[ -n "$phase" ]]; then
-      display_state="$phase ($state_raw)"
-    else
-      display_state="$state_raw"
-    fi
-    state_value="$(markdown_cell "$display_state")"
+    state_value="$(markdown_cell "$state_raw")"
 
     printf '%s\t| [%s](%s) | %s | %s | %s | %s |\n' \
-      "$label" "$label" "$item_url" "$date_value" "$trigger_value" "$ci_value" "$state_value" \
+      "$label" "$label" "$item_url" "$date_value" "$phase_value" "$ci_value" "$state_value" \
       >>"$rows_file"
   done
 
@@ -1934,7 +1927,7 @@ render_status_dashboard_block() {
     printf '%s\n' "$STATUS_BLOCK_START"
     printf '# Agent Watcher Status\n\n'
     printf 'Last updated: %s\n\n' "$(date '+%m-%d %H:%M %Z')"
-    printf '| Item | Date | Trigger | CI | State |\n'
+    printf '| Item | Date | Phase | CI | State |\n'
     printf '|---|---|---|---|---|\n'
     sort "$rows_file" | cut -f2-
     printf '\n%s\n' "$STATUS_BLOCK_END"
@@ -2105,7 +2098,7 @@ process_issue_item() {
   fi
 
   if ! pr_base_repo="$(resolve_origin_repo)"; then
-    record_status_event "$key" "repo check failed"
+    set_status_phase "$key" "repo check failed"
     return 0
   fi
 
@@ -2114,27 +2107,25 @@ process_issue_item() {
   if [[ "$compare_status" -eq 0 ]]; then
     prompt="$(resolve_prompt_for_issue "$repo" "$issue")"
     if send_prompt_to_target "$target" "$prompt"; then
-      write_status_field "$key" "phase" "progress"
-      record_status_event "$key" "issue prompt"
+      set_status_phase "$key" "issue prompt"
       log "sent initial issue prompt for $repo#$issue to $target"
     else
-      record_status_event "$key" "dispatch failed"
+      set_status_phase "$key" "dispatch failed"
       log "failed to send initial issue prompt for $repo#$issue"
     fi
     return 0
   elif [[ "$compare_status" -eq 2 ]]; then
-    record_status_event "$key" "head check failed"
+    set_status_phase "$key" "head check failed"
     log "could not compare $worktree HEAD with $pr_base_repo default branch"
     return 0
   fi
 
   prompt="$(resolve_prompt_for_pr_create "$pr_base_repo")"
   if send_prompt_to_target "$target" "$prompt"; then
-    write_status_field "$key" "phase" "create PR"
-    record_status_event "$key" "create PR"
+    set_status_phase "$key" "create PR"
     log "sent PR create prompt for issue $repo#$issue to $target"
   else
-    record_status_event "$key" "dispatch failed"
+    set_status_phase "$key" "dispatch failed"
     log "failed to send PR create prompt for issue $repo#$issue"
   fi
 }
@@ -2229,8 +2220,7 @@ process_watch_item() {
 
   if "$comment_needs_dispatch" || "$ci_needs_dispatch"; then
     if dispatch_watch_prompt "$repo" "$pr" "$worktree" "$session" "$new_comment_count" "$ci_failure_count"; then
-      write_status_field "$key" "phase" "addressing comments"
-      record_status_event "$key" "addressing comments"
+      set_status_phase "$key" "addressing comments"
       if "$comment_needs_dispatch"; then
         append_seen_ids "$comment_state_file" "$new_file"
       fi
@@ -2238,26 +2228,24 @@ process_watch_item() {
         printf '%s\n' "$current_signature" >"$ci_state_file"
       fi
     else
-      record_status_event "$key" "dispatch failed"
+      set_status_phase "$key" "dispatch failed"
       log "dispatch failed for $repo#$pr; will retry pending comment/CI changes on next poll"
     fi
   elif "$ci_pending_changed"; then
     printf '%s\n' "$current_signature" >"$ci_state_file"
-    write_status_field "$key" "phase" "CI pending"
-    record_status_event "$key" "CI pending"
+    set_status_phase "$key" "CI pending"
     log "CI pending for $repo#$pr"
   elif "$ci_passing_changed"; then
     printf '%s\n' "$current_signature" >"$ci_state_file"
-    write_status_field "$key" "phase" "CI passing"
-    record_status_event "$key" "CI passing"
+    set_status_phase "$key" "CI passing"
     log "CI passing for $repo#$pr"
   elif "$ci_was_primed"; then
     if [[ "$ci_failure_count" -gt 0 ]]; then
-      write_status_field "$key" "phase" "CI failing"
+      set_status_phase "$key" "CI failing"
     elif [[ "$ci_pending_count" -gt 0 ]]; then
-      write_status_field "$key" "phase" "CI pending"
+      set_status_phase "$key" "CI pending"
     elif "$ci_state_ready"; then
-      write_status_field "$key" "phase" "CI passing"
+      set_status_phase "$key" "CI passing"
     fi
   fi
 

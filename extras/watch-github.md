@@ -49,7 +49,7 @@ flowchart TD
     E -- no --> H{"Is the issue row tracked?"}
     H -- yes --> I["Replace the issue row with a PR row"]
     H -- no --> J["Append a PR row"]
-    I --> K["Record `PR discovered`"]
+    I --> K["Set phase `PR discovered`"]
     J --> K
     K --> P0["Continue with PR state flow"]
 
@@ -74,17 +74,17 @@ flowchart TD
     AB -- yes --> Y{"Agent live?"}
     Y -- no --> BA["Remove the issue row"]
     Y -- yes --> AC{"Resolve PR base repo?"}
-    AC -- no --> AD["Record `repo check failed`"]
+    AC -- no --> AD["Set phase `repo check failed`"]
     AD --> Z
     AC -- yes --> AE{"HEAD matches base branch?"}
     AE -- yes --> AF["Send issue work prompt"]
     AF --> AG{"Prompt sent?"}
-    AG -- yes --> AH["Phase `progress`; trigger `issue prompt`"]
-    AG -- no --> AI["Record `dispatch failed`"]
-    AE -- compare failed --> AJ["Record `head check failed`"]
+    AG -- yes --> AH["Set phase `issue prompt`"]
+    AG -- no --> AI["Set phase `dispatch failed`"]
+    AE -- compare failed --> AJ["Set phase `head check failed`"]
     AE -- no --> AK["Send `slang-pr-create` prompt"]
     AK --> AL{"Prompt sent?"}
-    AL -- yes --> AM["Phase `create PR`; trigger `create PR`"]
+    AL -- yes --> AM["Set phase `create PR`"]
     AL -- no --> AI
     AH --> Z
     AI --> Z
@@ -138,12 +138,12 @@ flowchart TD
 
     ZC -- yes --> ZE["Ensure/start agent and send `slang-pr-resolve-comments`"]
     ZE --> ZF{"Prompt sent?"}
-    ZF -- yes --> ZG["Phase/trigger `addressing comments`; store seen IDs and failing-CI signature when applicable"]
-    ZF -- no --> ZH["Record `dispatch failed`; leave pending state for retry"]
+    ZF -- yes --> ZG["Set phase `addressing comments`; store seen IDs and failing-CI signature when applicable"]
+    ZF -- no --> ZH["Set phase `dispatch failed`; leave pending state for retry"]
     ZC -- no --> ZI{"CI pending change?"}
-    ZI -- yes --> ZJ["Store signature; phase/trigger `CI pending`"]
+    ZI -- yes --> ZJ["Store signature; set phase `CI pending`"]
     ZI -- no --> ZK{"CI passing change?"}
-    ZK -- yes --> ZL["Store signature; phase/trigger `CI passing`"]
+    ZK -- yes --> ZL["Store signature; set phase `CI passing`"]
     ZK -- no --> ZD
     ZG --> ZD
     ZH --> ZD
