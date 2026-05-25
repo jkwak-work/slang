@@ -1240,12 +1240,11 @@ track_open_pr_for_issue() {
   local repo="$1"
   local issue="$2"
   local pr_url="$3"
-  local issue_tracked=false
   local pr_repo pr_number worktree session
 
   if ! parse_github_pr_url "$pr_url" pr_repo pr_number; then
     log "failed to parse related PR URL for $repo#$issue: $pr_url"
-    return 1
+    return 2
   fi
 
   if watch_state_has_item "$pr_repo" "$pr_number" ""; then
@@ -1256,30 +1255,29 @@ track_open_pr_for_issue() {
   fi
 
   if watch_state_find_item "$repo" "" "$issue" worktree session; then
-    issue_tracked=true
-  else
-    worktree="$(issue_worktree_path "$issue")"
-    session="$(issue_worktree_name "$issue")"
+    replace_watch_state_item "$repo" "" "$issue" "$pr_repo" "$pr_number" "$worktree" "$session"
+    set_status_phase "$(state_key_for "$pr_repo" "$pr_number")" "PR discovered"
+    return 0
   fi
 
-  if "$issue_tracked"; then
-    replace_watch_state_item "$repo" "" "$issue" "$pr_repo" "$pr_number" "$worktree" "$session"
-  else
-    append_watch_state_item "$pr_repo" "$pr_number" "" "$worktree" "$session"
-  fi
-  set_status_phase "$(state_key_for "$pr_repo" "$pr_number")" "PR discovered"
+  log "related PR $pr_url is open for $repo#$issue, but no issue worktree is tracked yet"
+  return 1
 }
 
 process_discovered_issue() {
   local repo="$1"
   local issue="$2"
-  local pr_url rc worktree session
+  local pr_url rc track_rc worktree session
 
   pr_url="$(first_open_related_pr_for_issue "$repo" "$issue")"
   rc=$?
   case "$rc" in
     0)
-      track_open_pr_for_issue "$repo" "$issue" "$pr_url" || true
+      track_open_pr_for_issue "$repo" "$issue" "$pr_url"
+      track_rc=$?
+      if [[ "$track_rc" -eq 1 ]]; then
+        start_discovered_issue "$repo" "$issue" || true
+      fi
       return 0
       ;;
     1)
