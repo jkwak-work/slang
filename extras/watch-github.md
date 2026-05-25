@@ -22,9 +22,11 @@ starting issue work.
 If there is no open related PR and the issue is not already tracked, the watcher first checks for
 an existing `issue-N` tmux session. If one exists, it treats that as failed setup recovery, kills
 the session, then deletes any safe `issue-N` worktree path because it may be leftover or corrupted.
-If no tmux session exists, the same worktree cleanup still runs. A fresh worktree is then created
-with `extras/git-worktree-add.sh --issue N issue-N`. The issue is added to watch state only after
-the new agent is live.
+If no tmux session exists, the same worktree cleanup still runs. Fresh issue worktrees must be
+created through `create_issue_worktree`, which is the boundary that calls
+`extras/git-worktree-add.sh --issue N issue-N`. That helper owns issue branch and worktree setup;
+the watcher should not bypass it with direct `git worktree add` calls in the issue setup flow. The
+issue is added to watch state only after the new agent is live.
 
 For tracked issue rows, the watcher treats the agent as idle when the captured pane screen repeats
 across polling checks. If the tracked tmux session no longer has a live agent, the issue row is
@@ -55,24 +57,28 @@ flowchart TD
 
     D -- no --> L{"Is the issue row tracked?"}
     L -- yes --> M["Process tracked issue row"]
-    BA --> N
     L -- no --> N{"Does `issue-N` tmux session exist?"}
     N -- yes --> O{"Kill existing tmux session"}
     O -- failed --> Z
     O -- succeed --> V
     N -- no --> V{"Does the issue worktree path exist?"}
     V -- yes --> W{"Delete the safe `issue-N` worktree path"}
-    V -- no --> U["Create worktree for `issue-N`"]
+    V -- no --> U{"`create_issue_worktree` calls `extras/git-worktree-add.sh --issue N issue-N`"}
     W -- failed --> Z
     W -- succeed --> U
-    U --> X["Create a tmux session and start an agent in `issue-N`"]
-    X --> AA["Append issue row; phase `progress`; CI `not watched`"]
+    U -- failed --> Z
+    U -- succeed --> X{"Ensure/start agent and verify it is live"}
+    X -- failed --> Z
+    X -- succeed --> AA["Append issue row; phase `progress`; CI `not watched`"]
     AA --> Z
 
-    M --> AB{"tmux state is `idle`?"}
+    M --> MB{"tmux state is `no session` or `unknown`?"}
+    MB -- yes --> BA["Remove the issue row"]
+    BA --> N
+    MB -- no --> AB{"tmux state is `idle`?"}
     AB -- no --> Z
     AB -- yes --> Y{"Agent live?"}
-    Y -- no --> BA["Remove the issue row"]
+    Y -- no --> BA
     Y -- yes --> AC{"Resolve PR base repo?"}
     AC -- no --> AD["Set phase `repo check failed`"]
     AD --> Z
@@ -100,55 +106,58 @@ flowchart TD
     B --> C{"Fetch comments, review comments, and reviews?"}
     C -- no --> D["Log comment fetch failure"]
     C -- yes --> E{"Seen-id file exists?"}
-    E -- no --> F{"`BOOTSTRAP_MODE` is `trigger`?"}
-    F -- no --> G["Prime seen IDs from existing events"]
-    F -- yes --> H["Collect fetched events as new"]
-    E -- yes --> I["Collect events not in seen-id file"]
-    H --> J{"Any new events?"}
-    I --> J
-    G --> K["No comment dispatch"]
-    D --> K
-    J -- no --> K
-    J -- yes --> L["Mark comment dispatch pending"]
+    E -- no --> F["Create empty seen-id file"]
+    F --> G{"`BOOTSTRAP_MODE` is `trigger`?"}
+    G -- no --> H["Prime seen IDs from existing events"]
+    G -- yes --> I["Collect fetched events as new"]
+    E -- yes --> J["Collect events not in seen-id file"]
+    I --> K{"Any new events?"}
+    J --> K
+    H --> L["No comment dispatch"]
+    D --> L
+    K -- no --> L
+    K -- yes --> M["Mark comment dispatch pending"]
 
-    K --> M{"`WATCH_CI` is `true`?"}
-    L --> M
-    M -- no --> N["Set CI to `not watched`"]
-    M -- yes --> O{"Fetch fail/cancel/pending checks?"}
-    O -- no --> P["Set CI to `unknown` and log"]
-    O -- yes --> Q["Count checks, compute CI signature, write CI status"]
-    Q --> R{"CI signature changed?"}
-    R -- no --> S{"Was this CI state just primed?"}
-    R -- yes --> T{"First sample and `CI_BOOTSTRAP_MODE` is not `trigger`?"}
-    T -- yes --> U["Store signature and mark CI primed"]
-    U --> S
-    T -- no --> V{"Any fail or cancel checks?"}
-    V -- yes --> W["Mark failing-CI dispatch pending"]
-    V -- no --> X{"Any pending checks?"}
-    X -- yes --> Y["Mark CI pending change"]
-    X -- no --> ZA["Mark CI passing change"]
-    S -- yes --> ZB["Set phase from current CI state"]
-    S -- no --> ZC{"Comment or failing-CI dispatch pending?"}
-    N --> ZC
-    P --> ZC
-    W --> ZC
-    Y --> ZC
+    L --> N{"`WATCH_CI` is `true`?"}
+    M --> N
+    N -- no --> O["Set CI to `not watched`"]
+    N -- yes --> P{"Fetch fail/cancel/pending checks?"}
+    P -- no --> Q["Set CI to `unknown` and log"]
+    P -- yes --> R["Count checks, compute CI signature, write CI status"]
+    R --> S{"Signature differs from stored CI signature?"}
+    S -- no --> T["No CI change"]
+    S -- yes --> U{"No CI state file and `CI_BOOTSTRAP_MODE` is not `trigger`?"}
+    U -- yes --> V["Store signature; mark CI just primed"]
+    U -- no --> W{"Any fail or cancel checks?"}
+    W -- yes --> X["Mark failing-CI dispatch pending"]
+    W -- no --> Y{"Any pending checks?"}
+    Y -- yes --> ZA["Mark CI pending change"]
+    Y -- no --> ZB["Mark CI passing change"]
+
+    O --> ZC{"Comment or failing-CI dispatch pending?"}
+    Q --> ZC
+    T --> ZC
+    V --> ZC
+    X --> ZC
     ZA --> ZC
-    ZB --> ZD["Remove temporary files"]
+    ZB --> ZC
 
-    ZC -- yes --> ZE["Ensure/start agent and send `slang-pr-resolve-comments`"]
-    ZE --> ZF{"Prompt sent?"}
-    ZF -- yes --> ZG["Set phase `addressing comments`; store seen IDs and failing-CI signature when applicable"]
-    ZF -- no --> ZH["Set phase `dispatch failed`; leave pending state for retry"]
-    ZC -- no --> ZI{"CI pending change?"}
-    ZI -- yes --> ZJ["Store signature; set phase `CI pending`"]
-    ZI -- no --> ZK{"CI passing change?"}
-    ZK -- yes --> ZL["Store signature; set phase `CI passing`"]
-    ZK -- no --> ZD
-    ZG --> ZD
-    ZH --> ZD
-    ZJ --> ZD
-    ZL --> ZD
+    ZC -- yes --> ZD["Ensure/start agent and send `slang-pr-resolve-comments`"]
+    ZD --> ZE{"Prompt sent?"}
+    ZE -- yes --> ZF["Set phase `addressing comments`; store seen IDs and failing-CI signature when applicable"]
+    ZE -- no --> ZG["Set phase `dispatch failed`; leave pending state for retry"]
+    ZC -- no --> ZH{"CI pending change?"}
+    ZH -- yes --> ZI["Store signature; set phase `CI pending`"]
+    ZH -- no --> ZJ{"CI passing change?"}
+    ZJ -- yes --> ZK["Store signature; set phase `CI passing`"]
+    ZJ -- no --> ZL{"CI just primed?"}
+    ZL -- yes --> ZM["Set phase from current CI state"]
+    ZL -- no --> ZN["Remove temporary files"]
+    ZF --> ZN
+    ZG --> ZN
+    ZI --> ZN
+    ZK --> ZN
+    ZM --> ZN
 ```
 
 ## Usage
