@@ -22,8 +22,9 @@ starting issue work.
 If there is no open related PR and the issue is not already tracked, the watcher first checks for
 an existing `issue-N` tmux session. If one exists, it treats that as failed setup recovery, kills
 the session, then deletes any safe `issue-N` worktree path because it may be leftover or corrupted.
-If no tmux session exists, the same worktree cleanup still runs. Fresh issue worktrees must be
-created through `create_issue_worktree`, which is the boundary that calls
+If no tmux session exists, the same worktree cleanup still runs. Before fresh setup, the watcher
+also removes the reserved local `issue-N` branch so stale branch contents are not reused. Fresh
+issue worktrees must be created through `create_issue_worktree`, which is the boundary that calls
 `extras/git-worktree-add.sh --issue N issue-N`. That helper owns issue branch and worktree setup;
 the watcher should not bypass it with direct `git worktree add` calls in the issue setup flow. The
 issue is added to watch state only after the new agent is live.
@@ -61,11 +62,9 @@ flowchart TD
     N -- yes --> O{"Kill existing tmux session"}
     O -- failed --> Z
     O -- succeed --> V
-    N -- no --> V{"Does the issue worktree path exist?"}
-    V -- yes --> W{"Delete the safe `issue-N` worktree path"}
-    V -- no --> U{"`create_issue_worktree` calls `extras/git-worktree-add.sh --issue N issue-N`"}
-    W -- failed --> Z
-    W -- succeed --> U
+    N -- no --> V{"Delete `issue-N` branch and worktree path"}
+    V -- failed --> Z
+    V -- succeed --> U{"create_issue_worktree calls `extras/git-worktree-add.sh --issue N issue-N`"}
     U -- failed --> Z
     U -- succeed --> X{"Ensure/start agent and verify it is live"}
     X -- failed --> Z

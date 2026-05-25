@@ -1087,6 +1087,22 @@ delete_issue_worktree() {
   fi
 }
 
+delete_issue_branch() {
+  local branch="$1"
+  local worktree_log="$2"
+
+  "$GIT_COMMAND" show-ref --verify --quiet "refs/heads/$branch" || return 0
+
+  log "deleting existing issue branch $branch before rediscovery"
+  printf '[%s] Deleting existing issue branch before rediscovery: %s\n' \
+    "$(date '+%H:%M:%S')" "$branch" >>"$worktree_log"
+  "$GIT_COMMAND" worktree prune >>"$worktree_log" 2>&1 || true
+  if ! "$GIT_COMMAND" branch -D "$branch" >>"$worktree_log" 2>&1; then
+    log "failed to delete existing issue branch $branch; see $worktree_log"
+    return 1
+  fi
+}
+
 clear_issue_agent_state() {
   local session="$1"
   local target safe_target
@@ -1103,7 +1119,7 @@ clear_issue_agent_state() {
 create_issue_worktree() {
   local repo="$1"
   local issue="$2"
-  local worktree_name worktree worktree_log git_worktree
+  local worktree_name worktree worktree_log
 
   worktree_name="$(issue_worktree_name "$issue")"
   worktree="$(issue_worktree_path "$issue")"
@@ -1115,21 +1131,12 @@ create_issue_worktree() {
     return 1
   fi
 
+  : >"$worktree_log"
+  delete_issue_branch "$worktree_name" "$worktree_log" || return 1
+
   log "creating issue worktree $worktree_name for $repo#$issue"
-  if "$GIT_COMMAND" show-ref --verify --quiet "refs/heads/$worktree_name"; then
-    git_worktree="$(path_for_git_path_arg "$worktree")" || return 1
-    printf '[%s] Reusing existing local branch: %s\n' "$(date '+%H:%M:%S')" "$worktree_name" >"$worktree_log"
-    if ! "$GIT_COMMAND" worktree add -q "$git_worktree" "$worktree_name" >>"$worktree_log" 2>&1; then
-      log "git worktree add failed for existing branch $worktree_name; see $worktree_log"
-      return 1
-    fi
-    if [[ -f "$worktree/.gitmodules" ]] &&
-      ! "$GIT_COMMAND" -C "$git_worktree" submodule -q update --init --recursive --jobs 0 >>"$worktree_log" 2>&1; then
-      log "submodule update failed for existing branch $worktree_name; see $worktree_log"
-      return 1
-    fi
-  elif ! GH_REPO="$repo" GIT_EXE="$GIT_COMMAND" GH_EXE="$GH_COMMAND" \
-    extras/git-worktree-add.sh --issue "$issue" "$worktree_name" >"$worktree_log" 2>&1; then
+  if ! GH_REPO="$repo" GIT_EXE="$GIT_COMMAND" GH_EXE="$GH_COMMAND" \
+    extras/git-worktree-add.sh --issue "$issue" "$worktree_name" >>"$worktree_log" 2>&1; then
     log "git-worktree-add failed for $repo#$issue; see $worktree_log"
     return 1
   fi
