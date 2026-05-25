@@ -62,6 +62,7 @@ STATUS_BLOCK_START="<!-- pr-watch-status:start -->"
 STATUS_BLOCK_END="<!-- pr-watch-status:end -->"
 RESOLVE_SKILL="slang-pr-resolve-comments"
 PR_CREATE_SKILL="slang-pr-create"
+WATCH_TEMP_DIR=""
 ONCE=false
 HELP_REQUESTED=false
 
@@ -165,6 +166,26 @@ finish_status_line() {
     printf '\n' >&2
   fi
   STATUS_LINE_ACTIVE=false
+}
+
+watch_temp_file() {
+  local prefix="${1:-watch-github}"
+
+  if [[ -n "$WATCH_TEMP_DIR" ]]; then
+    mktemp "$WATCH_TEMP_DIR/$prefix.XXXXXX"
+  else
+    mktemp
+  fi
+}
+
+cleanup_watch_temp_dir() {
+  local temp_dir="$WATCH_TEMP_DIR"
+
+  WATCH_TEMP_DIR=""
+  if [[ -n "$temp_dir" && -d "$temp_dir" ]]; then
+    rm -rf "$temp_dir"
+  fi
+  finish_status_line
 }
 
 print_replacing_status_line() {
@@ -819,7 +840,7 @@ replace_watch_state_item() {
   local session="$7"
   local tmp line repo pr issue parsed_worktree parsed_session replaced=false
 
-  tmp="$(mktemp)"
+  tmp="$(watch_temp_file)"
   while IFS= read -r line || [[ -n "$line" ]]; do
     if ! "$replaced" &&
       parse_watch_state_fields "$line" repo pr issue parsed_worktree parsed_session 2>/dev/null &&
@@ -849,7 +870,7 @@ remove_watch_state_item() {
   local old_issue="$3"
   local tmp line repo pr issue parsed_worktree parsed_session removed=false
 
-  tmp="$(mktemp)"
+  tmp="$(watch_temp_file)"
   while IFS= read -r line || [[ -n "$line" ]]; do
     if parse_watch_state_fields "$line" repo pr issue parsed_worktree parsed_session 2>/dev/null &&
       [[ "$repo" == "$old_repo" ]] &&
@@ -906,8 +927,8 @@ related_pr_urls_for_issue() {
   local issue="$2"
   local refs_file timeline_file rc
 
-  refs_file="$(mktemp)"
-  timeline_file="$(mktemp)"
+  refs_file="$(watch_temp_file)"
+  timeline_file="$(watch_temp_file)"
 
   if ! "$GH_COMMAND" issue view "$issue" \
     --repo "$repo" \
@@ -944,7 +965,7 @@ open_related_prs_for_issue() {
   local related_file pr_url rc
   local has_open=false inspect_failed=false
 
-  related_file="$(mktemp)"
+  related_file="$(watch_temp_file)"
   if ! related_pr_urls_for_issue "$repo" "$issue" >"$related_file"; then
     rm -f "$related_file"
     return 2
@@ -979,7 +1000,7 @@ first_open_related_pr_for_issue() {
   local issue="$2"
   local open_prs_file first_pr rc
 
-  open_prs_file="$(mktemp)"
+  open_prs_file="$(watch_temp_file)"
   open_related_prs_for_issue "$repo" "$issue" >"$open_prs_file"
   rc=$?
   case "$rc" in
@@ -1041,8 +1062,8 @@ worktree_head_is_in_default_branch() {
   git_commit_for_ref "$worktree" HEAD >/dev/null || return 2
 
   base_branch="$(resolve_repo_default_branch "$pr_repo")" || return 2
-  refs_file="$(mktemp)"
-  unique_refs_file="$(mktemp)"
+  refs_file="$(watch_temp_file)"
+  unique_refs_file="$(watch_temp_file)"
   printf '%s\n' \
     "refs/remotes/origin/$base_branch" \
     "origin/$base_branch" \
@@ -1057,8 +1078,8 @@ worktree_head_is_in_default_branch() {
     worktree_ref_contains_head "$worktree" "$ref"
     case "$?" in
       0)
-        rm -f "$refs_file" "$unique_refs_file"
-        return 0
+        rc=0
+        break
         ;;
       1)
         rc=1
@@ -1074,7 +1095,7 @@ fetch_copilot_issues() {
   local repo="$1"
   local issues_file
 
-  issues_file="$(mktemp)"
+  issues_file="$(watch_temp_file)"
   if ! "$GH_COMMAND" issue list \
     --repo "$repo" \
     --assignee "@me" \
@@ -1314,9 +1335,9 @@ fetch_events() {
   local repo="$1"
   local pr="$2"
   local tmp raw
-  tmp="$(mktemp)"
+  tmp="$(watch_temp_file)"
 
-  raw="$(mktemp)"
+  raw="$(watch_temp_file)"
   if ! "$GH_COMMAND" api --paginate "repos/$repo/issues/$pr/comments?per_page=$COMMENT_PAGE_SIZE" >"$raw"; then
     rm -f "$tmp" "$raw"
     return 1
@@ -1339,7 +1360,7 @@ fetch_events() {
   fi
   rm -f "$raw"
 
-  raw="$(mktemp)"
+  raw="$(watch_temp_file)"
   if ! "$GH_COMMAND" api --paginate "repos/$repo/pulls/$pr/comments?per_page=$COMMENT_PAGE_SIZE" >"$raw"; then
     rm -f "$tmp" "$raw"
     return 1
@@ -1362,7 +1383,7 @@ fetch_events() {
   fi
   rm -f "$raw"
 
-  raw="$(mktemp)"
+  raw="$(watch_temp_file)"
   if ! "$GH_COMMAND" api --paginate "repos/$repo/pulls/$pr/reviews?per_page=$COMMENT_PAGE_SIZE" >"$raw"; then
     rm -f "$tmp" "$raw"
     return 1
@@ -1394,7 +1415,7 @@ fetch_ci_attention_checks() {
   local repo="$1"
   local pr="$2"
   local raw rc
-  raw="$(mktemp)"
+  raw="$(watch_temp_file)"
 
   "$GH_COMMAND" pr checks "$pr" --repo "$repo" \
     --json bucket,completedAt,description,event,link,name,startedAt,state,workflow \
@@ -1440,7 +1461,7 @@ append_seen_ids() {
   local state_file="$1"
   local events_file="$2"
   local tmp
-  tmp="$(mktemp)"
+  tmp="$(watch_temp_file)"
   {
     [[ -f "$state_file" ]] && cat "$state_file"
     jq -r '.id' "$events_file"
@@ -1940,7 +1961,7 @@ render_status_dashboard_block() {
   local rows_file i repo pr issue session key label item_url phase
   local date_value phase_value ci_value state_raw previous_state state_value
 
-  rows_file="$(mktemp)"
+  rows_file="$(watch_temp_file)"
   for ((i = 0; i < ${#REPOS[@]}; i++)); do
     repo="${REPOS[$i]}"
     pr="${PRS[$i]}"
@@ -2033,9 +2054,9 @@ maybe_update_status_issue() {
   [[ "$STATUS_ENABLED" == "true" ]] || return 0
   [[ -n "$STATUS_ISSUE_REPO" && -n "$STATUS_ISSUE_NUMBER" ]] || return 0
 
-  current_file="$(mktemp)"
-  block_file="$(mktemp)"
-  new_body_file="$(mktemp)"
+  current_file="$(watch_temp_file)"
+  block_file="$(watch_temp_file)"
+  new_body_file="$(watch_temp_file)"
 
   render_status_dashboard_block "$block_file"
   if ! "$GH_COMMAND" issue view "$STATUS_ISSUE_NUMBER" --repo "$STATUS_ISSUE_REPO" --json body -q .body >"$current_file"; then
@@ -2070,7 +2091,7 @@ send_prompt_to_target() {
   local safe_target buffer_name tmp text attempt
   safe_target="$(sanitize_name "$target")"
   buffer_name="pr_watch_msg_$safe_target"
-  tmp="$(mktemp "/tmp/pr-watch-prompt.$safe_target.XXXXXX")"
+  tmp="$(watch_temp_file "pr-watch-prompt.$safe_target")"
 
   save_last_prompt_for_target "$target" "$prompt"
   printf '%s' "$prompt" >"$tmp"
@@ -2212,9 +2233,9 @@ process_watch_item() {
 
   comment_state_file="$STATE_DIR/$key.seen"
   ci_state_file="$STATE_DIR/$key.ci-failures"
-  events_file="$(mktemp)"
-  new_file="$(mktemp)"
-  checks_file="$(mktemp)"
+  events_file="$(watch_temp_file)"
+  new_file="$(watch_temp_file)"
+  checks_file="$(watch_temp_file)"
   new_comment_count=0
   ci_failure_count=0
   ci_pending_count=0
@@ -2381,6 +2402,7 @@ main() {
   need_command cut
   need_command grep
   need_command jq
+  need_command mktemp
   need_command sort
   need_command tail
   need_command tmux
@@ -2394,7 +2416,10 @@ main() {
   "$GH_COMMAND" auth status >/dev/null || die "$GH_COMMAND is not authenticated"
 
   mkdir -p "$STATE_DIR"
-  trap finish_status_line EXIT
+  WATCH_TEMP_DIR="$(mktemp -d)" || die "failed to create temporary directory"
+  trap cleanup_watch_temp_dir EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   while true; do
     if read_watch_state; then
