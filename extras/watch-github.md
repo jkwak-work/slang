@@ -16,8 +16,8 @@ the watcher.
 
 The watcher also discovers open issues in the configured issue repository that are assigned to
 `@me` and have the `Copilot` label. For each issue, it lists related PRs from GitHub issue
-metadata and timeline references. If any related PR is open, the watcher tracks that PR instead of
-starting issue work.
+metadata and timeline references, limited to PRs created by `@me`. If any of those related PRs is
+open, the watcher tracks that PR instead of starting issue work.
 
 If there is no open related PR and the issue is not already tracked, the watcher first checks for
 an existing `issue-N` tmux session. If one exists, it treats that as failed setup recovery, kills
@@ -41,7 +41,7 @@ branch. If so, it sends the issue prompt. If the worktree has a new commit, it s
 
 ```mermaid
 flowchart TD
-    A["Discover assigned open issue with `Copilot` label"] --> B["Find related PRs from issue refs and timeline"]
+    A["Discover assigned open issue with `Copilot` label"] --> B["Find related PRs from issue refs and timeline created by `@me`"]
     B --> C{"Related PR lookup succeeded?"}
     C -- no --> Z["Log and skip this issue until the next poll"]
     C -- yes --> D{"Any related PR is open?"}

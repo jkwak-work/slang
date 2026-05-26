@@ -408,6 +408,15 @@ resolve_issue_repo() {
   printf '%s\n' "$repo"
 }
 
+current_github_login() {
+  local login
+
+  login="$("$GH_COMMAND" api user --jq .login </dev/null 2>/dev/null | tr -d '\r')" ||
+    return 1
+  [[ -n "$login" ]] || return 1
+  printf '%s\n' "$login"
+}
+
 resolve_repo_default_branch() {
   local repo="$1"
   local branch
@@ -912,13 +921,19 @@ pr_state_for() {
   printf '%s\n' "${state,,}"
 }
 
-pr_url_is_open() {
+pr_url_is_open_and_created_by() {
   local pr_url="$1"
-  local repo pr state
+  local author_login="$2"
+  local repo pr pr_info state login
 
   parse_github_pr_url "$pr_url" repo pr || return 2
-  state="$(pr_state_for "$repo" "$pr")" || return 2
-  [[ "$state" == "open" ]]
+  pr_info="$("$GH_COMMAND" api "repos/$repo/pulls/$pr" \
+    --jq '[if (.state // "") == "closed" and (.merged // false) then "merged" else (.state // "") end, (.user.login // "")] | @tsv' \
+    </dev/null 2>/dev/null | tr -d '\r')" ||
+    return 2
+  IFS=$'\t' read -r state login <<<"$pr_info"
+  [[ -n "$state" && -n "$login" ]] || return 2
+  [[ "${state,,}" == "open" && "$login" == "$author_login" ]]
 }
 
 related_pr_urls_for_issue() {
@@ -962,8 +977,9 @@ open_related_prs_for_issue() {
   local repo="$1"
   local issue="$2"
   local related_file pr_url rc
-  local has_open=false inspect_failed=false
+  local viewer_login has_open=false inspect_failed=false
 
+  viewer_login="$(current_github_login)" || return 2
   related_file="$(watch_temp_file)"
   if ! related_pr_urls_for_issue "$repo" "$issue" >"$related_file"; then
     rm -f "$related_file"
@@ -972,7 +988,7 @@ open_related_prs_for_issue() {
 
   while IFS= read -r pr_url; do
     [[ -n "$pr_url" ]] || continue
-    pr_url_is_open "$pr_url"
+    pr_url_is_open_and_created_by "$pr_url" "$viewer_login"
     rc=$?
     case "$rc" in
       0)
