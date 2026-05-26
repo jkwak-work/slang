@@ -70,7 +70,7 @@ flowchart TD
     U -- succeed --> X{"Ensure/start agent and verify it is live"}
     X -- failed --> Z
     X -- succeed --> AA["Append issue row; phase `progress`; CI `not watched`"]
-    AA --> M
+    AA --> Z
 
     M --> MB{"tmux state is `no session` or `unknown`?"}
     MB -- yes --> BA["Remove the issue row"]

@@ -1255,7 +1255,6 @@ start_discovered_issue() {
   set_status_phase "$key" "progress"
   write_status_field "$key" "ci" "not watched"
   log "watching issue $repo#$issue in $worktree_name after starting agent at $target"
-  process_issue_item "$repo" "$issue" "$worktree" "$worktree_name" || true
 }
 
 track_open_pr_for_issue() {
@@ -2150,13 +2149,12 @@ process_issue_item() {
   local issue="$2"
   local worktree="$3"
   local session="$4"
-  local key state target text prompt pr_base_repo compare_status phase
+  local key state target text prompt pr_base_repo compare_status
 
   key="$(state_key_for_issue "$repo" "$issue")"
   ensure_status_defaults "$key"
   write_status_field "$key" "ci" "not watched"
   write_status_field_if_absent "$key" "phase" "progress"
-  phase="$(read_status_field "$key" "phase" "progress")"
 
   state="$(tmux_state_for_session "$session")"
   if [[ "$state" == "no session" || "$state" == "unknown" ]]; then
@@ -2164,20 +2162,13 @@ process_issue_item() {
     remove_watch_state_item "$repo" "" "$issue"
     return 1
   fi
+  [[ "$state" == "idle" ]] || return 0
   target="$(target_for_session "$session")"
   text="$(pane_tail "$target" || true)"
   if ! target_looks_like_live_agent "$target" "$text"; then
     log "removing stale issue row for $repo#$issue because agent is not live in $target"
     remove_watch_state_item "$repo" "" "$issue"
     return 1
-  fi
-  if [[ "$state" != "idle" ]]; then
-    if [[ "$phase" != "progress" ]] ||
-      pane_has_active_work_indicator "$text" ||
-      ! agent_current_prompt_line "$text" >/dev/null; then
-      return 0
-    fi
-    log "agent in $target reached idle prompt for initial issue work"
   fi
 
   if ! pr_base_repo="$(resolve_origin_repo)"; then
