@@ -27,14 +27,14 @@ also removes the reserved local `issue-N` branch so stale branch contents are no
 issue worktrees must be created through `create_issue_worktree`, which is the boundary that calls
 `extras/git-worktree-add.sh --issue N issue-N`. That helper owns issue branch and worktree setup;
 the watcher should not bypass it with direct `git worktree add` calls in the issue setup flow. The
-issue is added to watch state only after the new agent is live and the initial issue prompt has
-been sent.
+issue is added to watch state only after the new agent is live. The normal tracked-issue path then
+sends the initial issue prompt once the agent's idle input prompt is visible.
 
 For tracked issue rows, the watcher treats the agent as idle when the captured pane screen repeats
 across polling checks. If the tracked tmux session no longer has a live agent, the issue row is
 removed and rediscovered through the fresh setup path. When the agent is idle and live, it checks
 whether the worktree HEAD is already contained in any known ref for the target repository default
-branch. If so, it can retry the issue prompt. If the worktree has a new commit, it sends
+branch. If so, it sends the issue prompt. If the worktree has a new commit, it sends
 `slang-pr-create <origin-repo>`.
 
 ## Issue State Flow
@@ -69,10 +69,8 @@ flowchart TD
     U -- failed --> Z
     U -- succeed --> X{"Ensure/start agent and verify it is live"}
     X -- failed --> Z
-    X -- succeed --> W{"Send initial issue work prompt"}
-    W -- failed --> Z
-    W -- succeed --> AA["Append issue row; phase `issue prompt`; CI `not watched`"]
-    AA --> Z
+    X -- succeed --> AA["Append issue row; phase `progress`; CI `not watched`"]
+    AA --> M
 
     M --> MB{"tmux state is `no session` or `unknown`?"}
     MB -- yes --> BA["Remove the issue row"]
