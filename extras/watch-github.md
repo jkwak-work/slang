@@ -15,9 +15,11 @@ temporary GitHub/path lookup failures, are logged and skipped for that poll inst
 the watcher.
 
 The watcher also discovers open issues in the configured issue repository that are assigned to
-`@me` and have the `Copilot` label. For each issue, it lists related PRs from GitHub issue
-metadata and timeline references, limited to PRs created by `@me`. If any of those related PRs is
-open, the watcher tracks that PR instead of starting issue work.
+`@me` and have the `Copilot` label. For each issue, it lists candidate PRs from GitHub issue
+metadata, timeline references, and open PRs whose head branch contains `issue-N`, where `N` is the
+issue number. A candidate only counts if it is open, was created by `@me`, and its head branch
+contains that issue branch marker. If any matching PR exists, the watcher tracks that PR instead of
+starting issue work.
 
 If there is no open related PR and the issue is not already tracked, the watcher first checks for
 an existing `issue-N` tmux session. If one exists, it treats that as failed setup recovery, kills
@@ -47,10 +49,10 @@ a new commit, it sends `slang-pr-create <origin-repo>`.
 
 ```mermaid
 flowchart TD
-    A["Discover assigned open issue with `Copilot` label"] --> B["Find related PRs from issue refs and timeline created by `@me`"]
+    A["Discover assigned open issue with `Copilot` label"] --> B["Find PR candidates"]
     B --> C{"Related PR lookup succeeded?"}
     C -- no --> Z["Log and skip this issue until the next poll"]
-    C -- yes --> D{"Any related PR is open?"}
+    C -- yes --> D{"Any candidate is open, created by `@me`, and uses an `issue-N` head branch?"}
 
     D -- yes --> E{"Is that PR already tracked?"}
     E -- yes --> F{"Is the issue row tracked?"}
@@ -185,6 +187,8 @@ Options:
 - `--once`: run one polling pass and exit.
 - `--status-issue URL`: update a GitHub issue with watcher status once per polling pass. The URL
   must look like `https://github.com/OWNER/REPO/issues/NUMBER`.
+  The managed status block shows `Item`, `Phase`, and `CI`. If watched tmux agent panes exist, the
+  block also appends their captured screens at the bottom, limited by `CAPTURE_LINES`.
 
 ## Agent Configuration
 
@@ -198,16 +202,20 @@ agent command line; tracked issue processing sends it after the once-per-poll id
 - `AGENT_COMMAND`: agent command to start. Defaults to `codex`. Use `AGENT_COMMAND=claude` for
   Claude Code.
 - `AGENT_FLAGS`: flags appended when starting the agent. Defaults depend on `AGENT_COMMAND`:
-  Codex uses `--dangerously-bypass-approvals-and-sandbox`; Claude uses
-  `--dangerously-skip-permissions`.
+  Codex uses `--dangerously-bypass-approvals-and-sandbox`; Claude has no default flags.
 - `AGENT_SKILL_PREFIX`: prefix before agent skills such as `slang-pr-resolve-comments` and
   `slang-pr-create`. Defaults to `$` for Codex and `/` for Claude.
 - `AGENT_WINDOW_NAME`: tmux window name for the agent. Defaults to the command name.
+- `AGENT_SESSION_PREFIX`: prefix for generated PR tmux session names. Defaults to
+  `AGENT_WINDOW_NAME`.
 - `AGENT_READY_PATTERN`: extended regex used to detect that the agent has started. Readiness also
   requires the tmux pane's current command to be a non-shell process.
 - `AGENT_APPROVAL_PATTERN`: extended regex used to detect approval and trust prompts. When this
   matches, the watcher sends Enter.
-- `AGENT_START_WAIT_SECONDS`: seconds between readiness checks after starting the agent.
+- `AGENT_SHELL_COMMAND_PATTERN`: extended regex for shell process names that do not count as a
+  live agent pane.
+- `AGENT_START_WAIT_SECONDS`: seconds between readiness checks after starting the agent, and the
+  extra settle wait after readiness is detected.
 - `AGENT_START_ATTEMPTS`: number of readiness checks before startup is considered failed.
 
 ## Polling and State
@@ -227,11 +235,13 @@ agent command line; tracked issue processing sends it after the once-per-poll id
   `100`.
 - `WATCH_ISSUE_REPO`: repository used for assigned issue discovery. Defaults to
   `shader-slang/slang`.
-- `PR_BASE_REPO`: repository passed to `slang-pr-create` for issue PR creation. Defaults
-  to `origin`; the skill resolves that repository's default branch.
-- `COMMENT_PAGE_SIZE`: GitHub API page size for comment and review fetches.
-- `CAPTURE_LINES`: tmux pane capture depth used for state detection.
+- `PR_BASE_REPO`: repository passed to `slang-pr-create` for issue PR creation. If unset, the
+  watcher parses the GitHub `owner/repo` value from the `origin` remote URL.
+- `COMMENT_PAGE_SIZE`: GitHub API page size for comment and review fetches. Defaults to `100`.
+- `CAPTURE_LINES`: tmux pane capture depth used for state detection and status-issue screen
+  captures. Defaults to `250`.
 - `MATCH_TAIL_LINES`: number of captured tail lines scanned for approval and trust prompts.
+  Defaults to `50`.
 
 ## Prompt Delivery
 

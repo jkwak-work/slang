@@ -903,19 +903,37 @@ pr_state_for() {
   printf '%s\n' "${state,,}"
 }
 
-pr_url_is_open_and_created_by() {
+pr_head_ref_matches_issue() {
+  local head_ref="$1"
+  local issue="$2"
+
+  [[ "$head_ref" == *"issue-$issue"* ]]
+}
+
+pr_url_is_open_for_issue_and_created_by() {
   local pr_url="$1"
   local author_login="$2"
-  local repo pr pr_info state login
+  local issue="$3"
+  local repo pr pr_info state login head_ref
 
   parse_github_pr_url "$pr_url" repo pr || return 2
   pr_info="$("$GH_COMMAND" api "repos/$repo/pulls/$pr" \
-    --jq '[if (.state // "") == "closed" and (.merged // false) then "merged" else (.state // "") end, (.user.login // "")] | @tsv' \
+    --jq '
+      [
+        if (.state // "") == "closed" and (.merged // false)
+        then "merged"
+        else (.state // "")
+        end,
+        (.user.login // ""),
+        (.head.ref // "")
+      ] | @tsv
+    ' \
     </dev/null 2>/dev/null | tr -d '\r')" ||
     return 2
-  IFS=$'\t' read -r state login <<<"$pr_info"
-  [[ -n "$state" && -n "$login" ]] || return 2
-  [[ "${state,,}" == "open" && "$login" == "$author_login" ]]
+  IFS=$'\t' read -r state login head_ref <<<"$pr_info"
+  [[ -n "$state" && -n "$login" && -n "$head_ref" ]] || return 2
+  [[ "${state,,}" == "open" && "$login" == "$author_login" ]] || return 1
+  pr_head_ref_matches_issue "$head_ref" "$issue"
 }
 
 related_pr_urls_for_issue() {
@@ -955,22 +973,56 @@ related_pr_urls_for_issue() {
   return "$rc"
 }
 
+open_issue_branch_pr_urls_for_issue() {
+  local repo="$1"
+  local issue="$2"
+  local author_login="$3"
+  local raw branch_marker rc
+
+  raw="$(watch_temp_file)"
+  branch_marker="issue-$issue"
+  if ! "$GH_COMMAND" api --paginate \
+    "repos/$repo/pulls?state=open&per_page=$COMMENT_PAGE_SIZE" >"$raw" </dev/null; then
+    rm -f "$raw"
+    return 1
+  fi
+
+  jq -r --arg author_login "$author_login" --arg branch_marker "$branch_marker" '
+    .[] |
+    select((.user.login // "") == $author_login) |
+    select((.head.ref // "") | contains($branch_marker)) |
+    .html_url // empty
+  ' "$raw"
+  rc=$?
+
+  rm -f "$raw"
+  return "$rc"
+}
+
 open_related_prs_for_issue() {
   local repo="$1"
   local issue="$2"
-  local related_file pr_url rc
+  local related_file candidate_file pr_url rc
   local viewer_login has_open=false inspect_failed=false
 
   viewer_login="$(current_github_login)" || return 2
   related_file="$(watch_temp_file)"
+  candidate_file="$(watch_temp_file)"
   if ! related_pr_urls_for_issue "$repo" "$issue" >"$related_file"; then
-    rm -f "$related_file"
+    rm -f "$related_file" "$candidate_file"
     return 2
   fi
 
+  cat "$related_file" >"$candidate_file"
+  if ! open_issue_branch_pr_urls_for_issue \
+    "$repo" "$issue" "$viewer_login" >>"$candidate_file"; then
+    inspect_failed=true
+  fi
+  awk 'NF && !seen[$0]++' "$candidate_file" >"$related_file"
+
   while IFS= read -r pr_url; do
     [[ -n "$pr_url" ]] || continue
-    pr_url_is_open_and_created_by "$pr_url" "$viewer_login"
+    pr_url_is_open_for_issue_and_created_by "$pr_url" "$viewer_login" "$issue"
     rc=$?
     case "$rc" in
       0)
@@ -985,7 +1037,7 @@ open_related_prs_for_issue() {
     esac
   done <"$related_file"
 
-  rm -f "$related_file"
+  rm -f "$related_file" "$candidate_file"
   if "$inspect_failed"; then
     return 2
   fi
@@ -1543,6 +1595,18 @@ session_pane_targets() {
   done < <(tmux list-windows -t "$session" -F '#{window_index}' 2>/dev/null)
 }
 
+agent_pane_targets_for_session() {
+  local session="$1"
+
+  tmux_session_exists "$session" || return 0
+  if tmux_window_exists "$session" "$AGENT_WINDOW_NAME"; then
+    tmux list-panes -t "$session:$AGENT_WINDOW_NAME" \
+      -F '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null
+  else
+    target_for_session "$session"
+  fi
+}
+
 pane_tail() {
   local target="$1"
   tmux capture-pane -p -J -S "-$CAPTURE_LINES" -t "$target" 2>/dev/null
@@ -1637,6 +1701,7 @@ wait_for_agent_ready() {
     text="$(pane_tail "$target" || true)"
     maybe_approve_prompt "$target" "$text"
     if target_looks_like_live_agent "$target" "$text"; then
+      sleep "$AGENT_START_WAIT_SECONDS"
       return 0
     fi
   done
@@ -1789,17 +1854,58 @@ markdown_cell() {
   printf '%s' "$value"
 }
 
-render_status_dashboard_block() {
+render_status_pane_captures() {
   local output_file="$1"
-  local rows_file i repo pr issue session key label item_url phase
-  local date_value phase_value ci_value state_raw previous_state state_value
+  local i repo pr issue session label item_url target text
+  local captures_found=false
+  declare -A captured_targets=()
 
-  rows_file="$(watch_temp_file)"
+  : >"$output_file"
   for ((i = 0; i < ${#REPOS[@]}; i++)); do
     repo="${REPOS[$i]}"
     pr="${PRS[$i]}"
     issue="${ISSUES[$i]}"
     session="${SESSIONS[$i]}"
+    if [[ -n "$pr" ]]; then
+      label="$repo#$pr"
+      item_url="https://github.com/$repo/pull/$pr"
+    else
+      label="$repo#$issue"
+      item_url="https://github.com/$repo/issues/$issue"
+    fi
+
+    while IFS= read -r target; do
+      [[ -n "$target" ]] || continue
+      [[ -z "${captured_targets[$target]+set}" ]] || continue
+      captured_targets["$target"]=1
+      text="$(pane_tail "$target" || true)"
+
+      if ! "$captures_found"; then
+        printf '\n## Tmux Pane Captures\n\n' >>"$output_file"
+        captures_found=true
+      fi
+      printf '### [%s](%s) (`%s`)\n\n' "$label" "$item_url" "$target" >>"$output_file"
+      if [[ -n "$text" ]]; then
+        printf '%s\n' "$text" | sed -e 's/\r$//' -e 's/^/    /' >>"$output_file"
+      else
+        printf '    [empty pane]\n' >>"$output_file"
+      fi
+      printf '\n' >>"$output_file"
+    done < <(agent_pane_targets_for_session "$session")
+  done
+}
+
+render_status_dashboard_block() {
+  local output_file="$1"
+  local rows_file captures_file i repo pr issue key label item_url phase
+  local phase_value ci_value
+
+  rows_file="$(watch_temp_file)"
+  captures_file="$(watch_temp_file)"
+  for ((i = 0; i < ${#REPOS[@]}; i++)); do
+    repo="${REPOS[$i]}"
+    pr="${PRS[$i]}"
+    issue="${ISSUES[$i]}"
     key="$(state_key_for_item "$repo" "$pr" "$issue")"
     ensure_status_defaults "$key"
 
@@ -1813,35 +1919,28 @@ render_status_dashboard_block() {
       write_status_field "$key" "ci" "not watched"
     fi
 
-    state_raw="$(tmux_state_for_session "$session")"
-    previous_state="$(read_status_field "$key" "state" "")"
-    if [[ "$state_raw" != "$previous_state" ]]; then
-      write_status_field "$key" "state" "$state_raw"
-      write_status_field "$key" "date" "$(short_status_date)"
-    fi
-
-    date_value="$(markdown_cell "$(read_status_field "$key" "date" "$(short_status_date)")")"
     phase="$(read_status_field "$key" "phase" "none")"
     phase_value="$(markdown_cell "$phase")"
     ci_value="$(markdown_cell "$(read_status_field "$key" "ci" "unknown")")"
-    state_value="$(markdown_cell "$state_raw")"
 
-    printf '%s\t| [%s](%s) | %s | %s | %s | %s |\n' \
-      "$label" "$label" "$item_url" "$date_value" "$phase_value" "$ci_value" "$state_value" \
+    printf '%s\t| [%s](%s) | %s | %s |\n' \
+      "$label" "$label" "$item_url" "$phase_value" "$ci_value" \
       >>"$rows_file"
   done
+  render_status_pane_captures "$captures_file"
 
   {
     printf '%s\n' "$STATUS_BLOCK_START"
     printf '# Agent Watcher Status\n\n'
     printf 'Last updated: %s\n\n' "$(date '+%m-%d %H:%M %Z')"
-    printf '| Item | Date | Phase | CI | State |\n'
-    printf '|---|---|---|---|---|\n'
+    printf '| Item | Phase | CI |\n'
+    printf '|---|---|---|\n'
     sort "$rows_file" | cut -f2-
+    cat "$captures_file"
     printf '\n%s\n' "$STATUS_BLOCK_END"
   } >"$output_file"
 
-  rm -f "$rows_file"
+  rm -f "$rows_file" "$captures_file"
 }
 
 replace_status_block() {
