@@ -232,10 +232,9 @@ agent command line; it waits until the agent's idle input prompt is visible befo
 
 ## Prompt Delivery
 
-- `SEND_VERIFY_WAIT_SECONDS`: wait after pasting or submitting before checking the pane.
-- `PROMPT_ENTER_DELAY_SECONDS`: wait before sending Enter after a prompt paste.
-- `PROMPT_SEND_ATTEMPTS`: paste retry count.
-- `PROMPT_ENTER_ATTEMPTS`: submit retry count.
+- `SEND_VERIFY_WAIT_SECONDS`: wait between readiness checks before sending a startup prompt.
+- `PROMPT_ENTER_DELAY_SECONDS`: wait after pasting a prompt before sending Enter.
+- `PROMPT_SEND_ATTEMPTS`: tmux paste retry count.
 
 ## Tool Overrides
 

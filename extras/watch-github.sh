@@ -54,7 +54,6 @@ AGENT_START_ATTEMPTS="${AGENT_START_ATTEMPTS:-5}"
 SEND_VERIFY_WAIT_SECONDS="${SEND_VERIFY_WAIT_SECONDS:-2}"
 PROMPT_ENTER_DELAY_SECONDS="${PROMPT_ENTER_DELAY_SECONDS:-3}"
 PROMPT_SEND_ATTEMPTS="${PROMPT_SEND_ATTEMPTS:-3}"
-PROMPT_ENTER_ATTEMPTS="${PROMPT_ENTER_ATTEMPTS:-3}"
 STATUS_ENABLED=false
 STATUS_ISSUE_REPO=""
 STATUS_ISSUE_NUMBER=""
@@ -1608,25 +1607,6 @@ agent_current_prompt_line() {
   printf '%s\n' "$last_prompt_line"
 }
 
-agent_current_input_text() {
-  local text="$1"
-  local line input found=false
-
-  input=""
-  while IFS= read -r line; do
-    if [[ "$line" =~ $AGENT_PROMPT_LINE_PATTERN ]]; then
-      input="$line"
-      found=true
-    elif "$found"; then
-      input+=$'\n'
-      input+="$line"
-    fi
-  done < <(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")
-
-  "$found" || return 1
-  printf '%s\n' "$input"
-}
-
 agent_pending_input_line() {
   local text="$1"
   local last_prompt_line
@@ -1634,33 +1614,6 @@ agent_pending_input_line() {
   last_prompt_line="$(agent_current_prompt_line "$text")" || return 1
   [[ "$last_prompt_line" =~ $AGENT_PENDING_INPUT_PATTERN ]] || return 1
   printf '%s\n' "$last_prompt_line"
-}
-
-prompt_visible_in_current_input() {
-  local text="$1"
-  local prompt="$2"
-  local input_text token
-
-  input_text="$(agent_current_input_text "$text")" || return 1
-  [[ "$input_text" == *"$prompt"* ]] && return 0
-
-  token="${prompt%%$'\n'*}"
-  token="${token:0:80}"
-  [[ -n "$token" ]] || return 1
-  [[ "$input_text" == *"$token"* ]]
-}
-
-prompt_seen_in_text() {
-  local text="$1"
-  local prompt="$2"
-  local token
-
-  [[ "$text" == *"$prompt"* ]] && return 0
-
-  token="${prompt%%$'\n'*}"
-  token="${token:0:80}"
-  [[ -n "$token" ]] || return 1
-  [[ "$text" == *"$token"* ]]
 }
 
 pane_looks_working() {
@@ -1685,13 +1638,6 @@ maybe_send_initial_prompt() {
   for ((attempt = 1; attempt <= AGENT_START_ATTEMPTS; attempt++)); do
     text="$(pane_tail "$target" || true)"
     maybe_approve_prompt "$target" "$text"
-
-    if prompt_visible_in_current_input "$text" "$prompt"; then
-      submit_pending_prompt "$target" "$prompt"
-      return $?
-    fi
-
-    prompt_seen_in_text "$text" "$prompt" && return 0
 
     if agent_current_prompt_line "$text" >/dev/null; then
       log "agent in $target reached idle prompt; sending initial prompt"
@@ -1723,12 +1669,6 @@ load_last_prompt_for_target() {
   cat "$(last_prompt_file_for_target "$target")" 2>/dev/null || true
 }
 
-clear_pending_agent_input() {
-  local target="$1"
-  tmux send-keys -t "$target" C-u
-  sleep 1
-}
-
 paste_prompt_once() {
   local target="$1"
   local buffer_name="$2"
@@ -1740,29 +1680,6 @@ paste_prompt_once() {
     return 1
   }
   tmux delete-buffer -b "$buffer_name" 2>/dev/null || true
-}
-
-submit_pending_prompt() {
-  local target="$1"
-  local prompt="$2"
-  local attempt text
-
-  for ((attempt = 1; attempt <= PROMPT_ENTER_ATTEMPTS; attempt++)); do
-    sleep "$PROMPT_ENTER_DELAY_SECONDS"
-    tmux send-keys -t "$target" Enter
-    sleep "$SEND_VERIFY_WAIT_SECONDS"
-    text="$(pane_tail "$target" || true)"
-    maybe_approve_prompt "$target" "$text"
-
-    if ! prompt_visible_in_current_input "$text" "$prompt"; then
-      return 0
-    fi
-    if pane_looks_working "$text"; then
-      continue
-    fi
-  done
-
-  return 1
 }
 
 wait_for_agent_ready() {
@@ -2106,7 +2023,7 @@ maybe_update_status_issue() {
 send_prompt_to_target() {
   local target="$1"
   local prompt="$2"
-  local safe_target buffer_name tmp text attempt
+  local safe_target buffer_name tmp attempt
   safe_target="$(sanitize_name "$target")"
   buffer_name="pr_watch_msg_$safe_target"
   tmp="$(watch_temp_file "pr-watch-prompt.$safe_target")"
@@ -2115,32 +2032,16 @@ send_prompt_to_target() {
   printf '%s' "$prompt" >"$tmp"
 
   for ((attempt = 1; attempt <= PROMPT_SEND_ATTEMPTS; attempt++)); do
-    text="$(pane_tail "$target" || true)"
-    maybe_approve_prompt "$target" "$text"
-    if agent_prompt_has_pending_input "$text" && ! prompt_visible_in_current_input "$text" "$prompt"; then
-      clear_pending_agent_input "$target"
-    fi
-
     if ! paste_prompt_once "$target" "$buffer_name" "$tmp"; then
-      rm -f "$tmp"
-      return 1
+      continue
     fi
 
-    sleep "$SEND_VERIFY_WAIT_SECONDS"
-    text="$(pane_tail "$target" || true)"
-    maybe_approve_prompt "$target" "$text"
-
-    if prompt_visible_in_current_input "$text" "$prompt"; then
-      if submit_pending_prompt "$target" "$prompt"; then
-        rm -f "$tmp"
-        return 0
-      fi
-      log "prompt still pending in $target after Enter; retrying"
-    else
-      log "prompt paste incomplete in $target; retrying"
+    sleep "$PROMPT_ENTER_DELAY_SECONDS"
+    if ! tmux send-keys -t "$target" Enter; then
+      continue
     fi
-
-    clear_pending_agent_input "$target"
+    rm -f "$tmp"
+    return 0
   done
 
   rm -f "$tmp"
@@ -2360,28 +2261,18 @@ process_watch_item() {
 recover_pending_watcher_prompt() {
   local target="$1"
   local text="$2"
-  local last_prompt skill_token input_line
+  local last_prompt input_line
 
   last_prompt="$(load_last_prompt_for_target "$target")"
   [[ -n "$last_prompt" ]] || return 0
-
-  if prompt_visible_in_current_input "$text" "$last_prompt"; then
-    if submit_pending_prompt "$target" "$last_prompt"; then
-      log "submitted pending watcher prompt in $target"
-    else
-      log "pending watcher prompt in $target did not submit after Enter"
-    fi
-    return 0
-  fi
+  [[ "$last_prompt" == *"$RESOLVE_SKILL"* || "$last_prompt" == *"$PR_CREATE_SKILL"* ]] || return 0
 
   agent_prompt_has_pending_input "$text" || return 0
 
-  skill_token="${last_prompt%% *}"
   input_line="$(agent_pending_input_line "$text" 2>/dev/null || true)"
-  if [[ "$input_line" == *"$skill_token"* ]]; then
-    log "clearing incomplete watcher prompt in $target and resending"
-    clear_pending_agent_input "$target"
-    send_prompt_to_target "$target" "$last_prompt" || log "failed to resend watcher prompt to $target"
+  if [[ "$input_line" == *"$RESOLVE_SKILL"* || "$input_line" == *"$PR_CREATE_SKILL"* ]]; then
+    log "submitting pending watcher prompt in $target"
+    tmux send-keys -t "$target" Enter
   fi
 }
 
