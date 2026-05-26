@@ -1608,6 +1608,25 @@ agent_current_prompt_line() {
   printf '%s\n' "$last_prompt_line"
 }
 
+agent_current_input_text() {
+  local text="$1"
+  local line input found=false
+
+  input=""
+  while IFS= read -r line; do
+    if [[ "$line" =~ $AGENT_PROMPT_LINE_PATTERN ]]; then
+      input="$line"
+      found=true
+    elif "$found"; then
+      input+=$'\n'
+      input+="$line"
+    fi
+  done < <(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")
+
+  "$found" || return 1
+  printf '%s\n' "$input"
+}
+
 agent_pending_input_line() {
   local text="$1"
   local last_prompt_line
@@ -1620,15 +1639,15 @@ agent_pending_input_line() {
 prompt_visible_in_current_input() {
   local text="$1"
   local prompt="$2"
-  local input_line token
+  local input_text token
 
-  input_line="$(agent_current_prompt_line "$text")" || return 1
-  [[ "$input_line" == *"$prompt"* ]] && return 0
+  input_text="$(agent_current_input_text "$text")" || return 1
+  [[ "$input_text" == *"$prompt"* ]] && return 0
 
   token="${prompt%%$'\n'*}"
   token="${token:0:80}"
   [[ -n "$token" ]] || return 1
-  [[ "$input_line" == *"$token"* ]]
+  [[ "$input_text" == *"$token"* ]]
 }
 
 prompt_seen_in_text() {
