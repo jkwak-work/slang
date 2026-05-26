@@ -1221,7 +1221,7 @@ create_issue_worktree() {
 
   log "creating issue worktree $worktree_name for $repo#$issue"
   if ! GH_REPO="$repo" GIT_EXE="$GIT_COMMAND" GH_EXE="$GH_COMMAND" \
-    extras/git-worktree-add.sh --issue "$issue" "$worktree_name" >>"$worktree_log" 2>&1; then
+    extras/git-worktree-add.sh "$worktree_name" >>"$worktree_log" 2>&1; then
     log "git-worktree-add failed for $repo#$issue; see $worktree_log"
     return 1
   fi
