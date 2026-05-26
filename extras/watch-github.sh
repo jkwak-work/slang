@@ -1296,24 +1296,23 @@ track_open_pr_for_issue() {
     return 0
   fi
 
-  log "related PR $pr_url is open for $repo#$issue, but no issue worktree is tracked yet"
-  return 1
+  worktree="$(issue_worktree_path "$issue")"
+  session="$(issue_worktree_name "$issue")"
+  append_watch_state_item "$pr_repo" "$pr_number" "" "$worktree" "$session"
+  set_status_phase "$(state_key_for "$pr_repo" "$pr_number")" "PR discovered"
+  return 0
 }
 
 process_discovered_issue() {
   local repo="$1"
   local issue="$2"
-  local pr_url rc track_rc worktree session
+  local pr_url rc worktree session
 
   pr_url="$(first_open_related_pr_for_issue "$repo" "$issue")"
   rc=$?
   case "$rc" in
     0)
-      track_open_pr_for_issue "$repo" "$issue" "$pr_url"
-      track_rc=$?
-      if [[ "$track_rc" -eq 1 ]]; then
-        start_discovered_issue "$repo" "$issue" || true
-      fi
+      track_open_pr_for_issue "$repo" "$issue" "$pr_url" || true
       return 0
       ;;
     1)

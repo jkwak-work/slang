@@ -53,8 +53,9 @@ flowchart TD
     G --> P0
     E -- no --> H{"Is the issue row tracked?"}
     H -- yes --> I["Replace the issue row with a PR row"]
-    H -- no --> N
+    H -- no --> J["Append a PR row"]
     I --> K["Set phase `PR discovered`"]
+    J --> K
     K --> P0["Continue with PR state flow"]
 
     D -- no --> L{"Is the issue row tracked?"}
