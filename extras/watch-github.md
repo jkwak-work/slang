@@ -28,17 +28,20 @@ issue worktrees must be created through `create_issue_worktree`, which is the bo
 `extras/git-worktree-add.sh issue-N`. That helper owns issue branch and worktree setup;
 the watcher should not bypass it with direct `git worktree add` calls in the issue setup flow. The
 issue is added to watch state only after the new agent is live. The normal tracked-issue path then
-sends the initial issue prompt once the agent's idle input prompt is visible.
+sends the initial issue prompt once the agent's captured screen is stable.
 
 For tracked issue rows, the watcher treats the agent as idle when the captured pane screen repeats
-across polling checks. Issue rows already present at the beginning of a poll are processed after
-discovery even if the issue is absent from the latest discovery result; issue rows appended during
-that discovery pass wait until the next poll. If the tracked tmux session no longer has a live
-agent, the issue row is removed and rediscovered through the fresh setup path. The same happens
-when the tracked worktree is missing or the tmux session is rooted somewhere else. When the agent is
-idle and live, it checks whether the worktree HEAD is already contained in any known ref for the
-target repository default branch. If so, it sends the issue prompt. If the worktree has a new
-commit, it sends `slang-pr-create <origin-repo>`.
+across polling checks. The first idle check for a tmux target during a poll computes and caches that
+target's idle result; later checks in the same poll reuse the cached answer. The watcher persists
+the latest observed screen once at the end of that poll, so two checks in the same poll cannot make
+the current screen become the previous screen. Issue rows already present at the beginning of a poll
+are processed after discovery even if the issue is absent from the latest discovery result; issue
+rows appended during that discovery pass wait until the next poll. If the tracked tmux session no
+longer has a live agent, the issue row is removed and rediscovered through the fresh setup path. The
+same happens when the tracked worktree is missing or the tmux session is rooted somewhere else. When
+the agent is idle and live, it checks whether the worktree HEAD is already contained in any known
+ref for the target repository default branch. If so, it sends the issue prompt. If the worktree has
+a new commit, it sends `slang-pr-create <origin-repo>`.
 
 ## Issue State Flow
 
@@ -190,7 +193,7 @@ the agent for a run. Supported values are `codex` and `claude`; `AGENT_COMMAND` 
 value through the environment. New tmux sessions and agent windows start with the agent launch
 command as the tmux command itself, so a successful setup must leave a live agent process in the
 pane. The watcher sends the issue prompt after readiness detection instead of passing it on the
-agent command line; it waits until the agent's idle input prompt is visible before sending.
+agent command line; tracked issue processing sends it after the once-per-poll idle check passes.
 
 - `AGENT_COMMAND`: agent command to start. Defaults to `codex`. Use `AGENT_COMMAND=claude` for
   Claude Code.
@@ -202,23 +205,10 @@ agent command line; it waits until the agent's idle input prompt is visible befo
 - `AGENT_WINDOW_NAME`: tmux window name for the agent. Defaults to the command name.
 - `AGENT_READY_PATTERN`: extended regex used to detect that the agent has started. Readiness also
   requires the tmux pane's current command to be a non-shell process.
-- `AGENT_PROMPT_LINE_PATTERN`: extended regex used to identify the agent's current prompt line.
-- `AGENT_PENDING_INPUT_PATTERN`: extended regex used to detect watcher-owned pending input. The
-  default matches watcher-owned skill prompts either immediately after the prompt marker or at the
-  start of a continuation line inside the current agent prompt block, so suggested prompt text is
-  not treated as pending input. The block can span continuation or blank lines after the prompt
-  marker.
-- `AGENT_WORKING_PATTERN`: extended regex used to detect work in progress.
-- `AGENT_APPROVAL_PATTERN`: extended regex used to detect approval prompts.
-- `AGENT_TRUST_PROMPT_PATTERN`: extended regex used to detect startup trust prompts. When this
-  matches, the watcher sends `1` and Enter before waiting for agent readiness.
+- `AGENT_APPROVAL_PATTERN`: extended regex used to detect approval and trust prompts. When this
+  matches, the watcher sends Enter.
 - `AGENT_START_WAIT_SECONDS`: seconds between readiness checks after starting the agent.
 - `AGENT_START_ATTEMPTS`: number of readiness checks before startup is considered failed.
-- `AGENT_DISMISS_TIPS`: when `true`, the watcher sends Space followed by backspace at an idle
-  prompt before idle detection or prompt delivery. This clears transient prompt tips without
-  leaving typed input. Defaults to `true`.
-- `AGENT_TIP_DISMISS_WAIT_SECONDS`: short wait after the tip-dismiss keypress pair. Defaults to
-  `0.1`.
 
 ## Polling and State
 
@@ -240,12 +230,11 @@ agent command line; it waits until the agent's idle input prompt is visible befo
 - `PR_BASE_REPO`: repository passed to `slang-pr-create` for issue PR creation. Defaults
   to `origin`; the skill resolves that repository's default branch.
 - `COMMENT_PAGE_SIZE`: GitHub API page size for comment and review fetches.
-- `CAPTURE_LINES`: tmux pane capture depth used for prompt detection.
-- `MATCH_TAIL_LINES`: number of captured tail lines scanned for prompt/state matches.
+- `CAPTURE_LINES`: tmux pane capture depth used for state detection.
+- `MATCH_TAIL_LINES`: number of captured tail lines scanned for approval and trust prompts.
 
 ## Prompt Delivery
 
-- `SEND_VERIFY_WAIT_SECONDS`: wait between readiness checks before sending a startup prompt.
 - `PROMPT_ENTER_DELAY_SECONDS`: wait after pasting a prompt before sending Enter.
 - `PROMPT_SEND_ATTEMPTS`: tmux paste retry count.
 

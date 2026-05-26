@@ -40,20 +40,13 @@ AGENT_COMMAND="${AGENT_COMMAND:-codex}"
 AGENT_FLAGS="${AGENT_FLAGS:-}"
 AGENT_COMMAND_NAME=""
 AGENT_READY_PATTERN="${AGENT_READY_PATTERN:-}"
-AGENT_PROMPT_LINE_PATTERN="${AGENT_PROMPT_LINE_PATTERN:-}"
-AGENT_PENDING_INPUT_PATTERN="${AGENT_PENDING_INPUT_PATTERN:-}"
-AGENT_WORKING_PATTERN="${AGENT_WORKING_PATTERN:-}"
 AGENT_APPROVAL_PATTERN="${AGENT_APPROVAL_PATTERN:-}"
-AGENT_TRUST_PROMPT_PATTERN="${AGENT_TRUST_PROMPT_PATTERN:-}"
 AGENT_SHELL_COMMAND_PATTERN="${AGENT_SHELL_COMMAND_PATTERN:-}"
 AGENT_WINDOW_NAME="${AGENT_WINDOW_NAME:-}"
 AGENT_SESSION_PREFIX="${AGENT_SESSION_PREFIX:-}"
 AGENT_SKILL_PREFIX="${AGENT_SKILL_PREFIX:-}"
 AGENT_START_WAIT_SECONDS="${AGENT_START_WAIT_SECONDS:-10}"
 AGENT_START_ATTEMPTS="${AGENT_START_ATTEMPTS:-5}"
-AGENT_DISMISS_TIPS="${AGENT_DISMISS_TIPS:-true}"
-AGENT_TIP_DISMISS_WAIT_SECONDS="${AGENT_TIP_DISMISS_WAIT_SECONDS:-0.1}"
-SEND_VERIFY_WAIT_SECONDS="${SEND_VERIFY_WAIT_SECONDS:-2}"
 PROMPT_ENTER_DELAY_SECONDS="${PROMPT_ENTER_DELAY_SECONDS:-3}"
 PROMPT_SEND_ATTEMPTS="${PROMPT_SEND_ATTEMPTS:-3}"
 STATUS_ENABLED=false
@@ -73,13 +66,14 @@ declare -a ISSUES=()
 declare -a WORKTREES=()
 declare -a SESSIONS=()
 declare -A APPROVED_SIGNATURES=()
+declare -A IDLE_SCREEN_TEXTS=()
+declare -A IDLE_SCREEN_SIGNATURES=()
+declare -A IDLE_SCREEN_RESULTS=()
 LAST_STATUS_ISSUE_MESSAGE=""
 STATUS_LINE_ACTIVE=false
 
 finalize_agent_config() {
-  local default_ready_pattern default_pending_input_pattern default_approval_pattern
-  local default_prompt_line_pattern
-  local codex_prompt_marker claude_prompt_marker logical_line_start prompt_gap
+  local default_ready_pattern default_approval_pattern
 
   AGENT_COMMAND_NAME="$(basename "${AGENT_COMMAND%% *}")"
   if [[ -z "$AGENT_COMMAND_NAME" ]]; then
@@ -98,34 +92,19 @@ finalize_agent_config() {
     esac
   fi
 
-  codex_prompt_marker=$'\342\200\272'
-  claude_prompt_marker=$'\342\235\257'
-  logical_line_start=$'(^|\n)([[:space:]]|\302\240)*'
-  prompt_gap=$'([[:space:]]|\302\240)*'
-
   default_ready_pattern="$AGENT_COMMAND_NAME"
-  default_prompt_line_pattern="(^|[[:space:]])${codex_prompt_marker}|(^|[[:space:]])${claude_prompt_marker}"
-  default_pending_input_pattern="${logical_line_start}(\\\$|/)(${RESOLVE_SKILL}|${PR_CREATE_SKILL})([[:space:]]|$)"
   case "$AGENT_COMMAND_NAME" in
     codex)
       default_ready_pattern=$'Codex|gpt-[0-9]|(^|[[:space:]])\342\200\272[[:space:]]*$'
-      default_prompt_line_pattern="(^|[[:space:]])${codex_prompt_marker}"
-      default_pending_input_pattern="((^|[[:space:]])${codex_prompt_marker}${prompt_gap}|${logical_line_start})\\\$(${RESOLVE_SKILL}|${PR_CREATE_SKILL})([[:space:]]|$)"
       ;;
     claude|claude-code)
       default_ready_pattern='Claude|(^|[[:space:]])>[[:space:]]*$'
-      default_prompt_line_pattern="(^|[[:space:]])${claude_prompt_marker}"
-      default_pending_input_pattern="((^|[[:space:]])${claude_prompt_marker}${prompt_gap}|${logical_line_start})/(${RESOLVE_SKILL}|${PR_CREATE_SKILL})([[:space:]]|$)"
       ;;
   esac
 
   AGENT_READY_PATTERN="${AGENT_READY_PATTERN:-$default_ready_pattern}"
-  AGENT_PROMPT_LINE_PATTERN="${AGENT_PROMPT_LINE_PATTERN:-$default_prompt_line_pattern}"
-  AGENT_PENDING_INPUT_PATTERN="${AGENT_PENDING_INPUT_PATTERN:-$default_pending_input_pattern}"
-  AGENT_WORKING_PATTERN="${AGENT_WORKING_PATTERN:-Working \(|esc to interrupt|background terminal running|^• (Ran|Explored|Edited|Read|Searched|Thinking|Working)}"
-  default_approval_pattern=$'(^|[[:space:]])\342\235\257[[:space:]]+1[.] Yes'
+  default_approval_pattern=$'Do you trust the contents of this directory|Do you want to proceed|(^|[[:space:]])\342\235\257[[:space:]]+1[.] '
   AGENT_APPROVAL_PATTERN="${AGENT_APPROVAL_PATTERN:-$default_approval_pattern}"
-  AGENT_TRUST_PROMPT_PATTERN="${AGENT_TRUST_PROMPT_PATTERN:-Do you trust the contents of this directory[?]|1[.] Yes, continue|Press enter to continue}"
   AGENT_SHELL_COMMAND_PATTERN="${AGENT_SHELL_COMMAND_PATTERN:-^(bash|dash|sh|zsh|fish|cmd|cmd[.]exe|powershell|powershell[.]exe|pwsh|pwsh[.]exe)$}"
   AGENT_WINDOW_NAME="${AGENT_WINDOW_NAME:-$AGENT_COMMAND_NAME}"
   AGENT_SESSION_PREFIX="${AGENT_SESSION_PREFIX:-$AGENT_WINDOW_NAME}"
@@ -1199,8 +1178,7 @@ clear_issue_agent_state() {
     safe_target="$(sanitize_name "$target")"
     rm -f \
       "$STATE_DIR/$safe_target.idle-screen" \
-      "$STATE_DIR/$safe_target.idle-screen-signature" \
-      "$STATE_DIR/$safe_target.last-prompt"
+      "$STATE_DIR/$safe_target.idle-screen-signature"
   done
 }
 
@@ -1587,17 +1565,42 @@ idle_screen_signature_file_for_target() {
 target_screen_is_idle() {
   local target="$1"
   local text="$2"
-  local idle_screen_file signature_file signature previous_signature
+  local signature_file signature previous_signature
 
-  idle_screen_file="$(idle_screen_file_for_target "$target")"
+  if [[ -n "${IDLE_SCREEN_RESULTS[$target]+set}" ]]; then
+    [[ "${IDLE_SCREEN_RESULTS[$target]}" == "idle" ]]
+    return $?
+  fi
+
   signature_file="$(idle_screen_signature_file_for_target "$target")"
   signature="$(printf '%s\n' "$text" | signature_for)"
   previous_signature="$(cat "$signature_file" 2>/dev/null || true)"
 
-  printf '%s\n' "$text" >"$idle_screen_file"
-  printf '%s\n' "$signature" >"$signature_file"
+  IDLE_SCREEN_TEXTS["$target"]="$text"
+  IDLE_SCREEN_SIGNATURES["$target"]="$signature"
 
-  [[ -n "$previous_signature" && "$previous_signature" == "$signature" ]]
+  if [[ -n "$previous_signature" && "$previous_signature" == "$signature" ]]; then
+    IDLE_SCREEN_RESULTS["$target"]="idle"
+    return 0
+  fi
+
+  IDLE_SCREEN_RESULTS["$target"]="working"
+  return 1
+}
+
+persist_idle_screen_observations() {
+  local target idle_screen_file signature_file
+
+  for target in "${!IDLE_SCREEN_SIGNATURES[@]}"; do
+    idle_screen_file="$(idle_screen_file_for_target "$target")"
+    signature_file="$(idle_screen_signature_file_for_target "$target")"
+    printf '%s\n' "${IDLE_SCREEN_TEXTS[$target]}" >"$idle_screen_file"
+    printf '%s\n' "${IDLE_SCREEN_SIGNATURES[$target]}" >"$signature_file"
+  done
+
+  IDLE_SCREEN_TEXTS=()
+  IDLE_SCREEN_SIGNATURES=()
+  IDLE_SCREEN_RESULTS=()
 }
 
 pane_looks_like_agent() {
@@ -1610,135 +1613,7 @@ target_looks_like_live_agent() {
   local text="$2"
 
   target_has_non_shell_process "$target" || return 1
-  pane_looks_like_agent "$text" || pane_looks_working "$text" || return 1
-}
-
-agent_prompt_has_pending_input() {
-  local text="$1"
-  agent_pending_input_block "$text" >/dev/null
-}
-
-agent_current_prompt_line() {
-  local text="$1"
-  local line last_prompt_line
-
-  last_prompt_line=""
-  while IFS= read -r line; do
-    if [[ "$line" =~ $AGENT_PROMPT_LINE_PATTERN ]]; then
-      last_prompt_line="$line"
-    fi
-  done < <(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")
-
-  [[ -n "$last_prompt_line" ]] || return 1
-  printf '%s\n' "$last_prompt_line"
-}
-
-agent_current_prompt_block() {
-  local text="$1"
-  local line prompt_block found=false
-
-  prompt_block=""
-  while IFS= read -r line; do
-    if [[ "$line" =~ $AGENT_PROMPT_LINE_PATTERN ]]; then
-      prompt_block="$line"
-      found=true
-    elif "$found"; then
-      prompt_block+=$'\n'"$line"
-    fi
-  done < <(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")
-
-  "$found" || return 1
-  printf '%s\n' "$prompt_block"
-}
-
-agent_pending_input_block() {
-  local text="$1"
-  local prompt_block
-
-  prompt_block="$(agent_current_prompt_block "$text")" || return 1
-  if printf '%s\n' "$prompt_block" | tail -n +2 | grep -Eq "$AGENT_WORKING_PATTERN"; then
-    return 1
-  fi
-  [[ "$prompt_block" =~ $AGENT_PENDING_INPUT_PATTERN ]] || return 1
-  printf '%s\n' "$prompt_block"
-}
-
-pane_looks_working() {
-  local text="$1"
-  printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES" \
-    | grep -Eq "$AGENT_WORKING_PATTERN"
-}
-
-pane_has_active_work_indicator() {
-  local text="$1"
-  printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES" \
-    | awk -v prompt_pattern="$AGENT_PROMPT_LINE_PATTERN" '
-      $0 ~ prompt_pattern {
-        last_prompt_line = NR
-      }
-      /Working \(|esc to interrupt|background terminal running/ {
-        last_work_line = NR
-      }
-      END {
-        exit !(last_work_line > last_prompt_line)
-      }
-    '
-}
-
-maybe_dismiss_agent_tip() {
-  local target="$1"
-  local text="$2"
-
-  [[ "$AGENT_DISMISS_TIPS" == "true" ]] || return 0
-  agent_current_prompt_line "$text" >/dev/null || return 0
-  agent_prompt_has_pending_input "$text" && return 0
-  pane_has_active_work_indicator "$text" && return 0
-  approval_prompt_present "$text" && return 0
-  trust_prompt_present "$text" && return 0
-
-  tmux send-keys -t "$target" Space BSpace || return 0
-  sleep "$AGENT_TIP_DISMISS_WAIT_SECONDS"
-}
-
-maybe_send_initial_prompt() {
-  local target="$1"
-  local prompt="${2:-}"
-  local attempt text
-
-  [[ -n "$prompt" ]] || return 0
-
-  for ((attempt = 1; attempt <= AGENT_START_ATTEMPTS; attempt++)); do
-    text="$(pane_tail "$target" || true)"
-    maybe_approve_prompt "$target" "$text"
-
-    if agent_current_prompt_line "$text" >/dev/null; then
-      log "agent in $target reached idle prompt; sending initial prompt"
-      send_prompt_to_target "$target" "$prompt"
-      return $?
-    fi
-
-    sleep "$SEND_VERIFY_WAIT_SECONDS"
-  done
-
-  return 1
-}
-
-last_prompt_file_for_target() {
-  local target="$1"
-  local safe_target
-  safe_target="$(sanitize_name "$target")"
-  printf '%s/%s.last-prompt\n' "$STATE_DIR" "$safe_target"
-}
-
-save_last_prompt_for_target() {
-  local target="$1"
-  local prompt="$2"
-  printf '%s\n' "$prompt" >"$(last_prompt_file_for_target "$target")"
-}
-
-load_last_prompt_for_target() {
-  local target="$1"
-  cat "$(last_prompt_file_for_target "$target")" 2>/dev/null || true
+  pane_looks_like_agent "$text" || return 1
 }
 
 paste_prompt_once() {
@@ -1779,19 +1654,16 @@ agent_launch_command() {
 start_agent_in_pane() {
   local target="$1"
   local worktree="$2"
-  local initial_prompt="${3:-}"
   local command
 
   command="$(agent_launch_command)"
   tmux send-keys -t "$target" "$command" Enter
-  wait_for_agent_ready "$target" || return 1
-  maybe_send_initial_prompt "$target" "$initial_prompt"
+  wait_for_agent_ready "$target"
 }
 
 ensure_agent_target() {
   local session="$1"
   local worktree="$2"
-  local initial_prompt="${3:-}"
   local target text command
 
   [[ -d "$worktree" ]] || {
@@ -1808,10 +1680,6 @@ ensure_agent_target() {
     if ! wait_for_agent_ready "$target"; then
       log "agent did not become ready in $target"
       pane_tail "$target" >&2 || true
-      return 1
-    fi
-    if ! maybe_send_initial_prompt "$target" "$initial_prompt"; then
-      log "failed to send initial prompt in $target"
       return 1
     fi
     printf '%s\n' "$target"
@@ -1832,17 +1700,13 @@ ensure_agent_target() {
         pane_tail "$target" >&2 || true
         return 1
       fi
-      if ! maybe_send_initial_prompt "$target" "$initial_prompt"; then
-        log "failed to send initial prompt in $target"
-        return 1
-      fi
     fi
   fi
 
   target="$(target_for_session "$session")"
   text="$(pane_tail "$target" || true)"
   if ! target_looks_like_live_agent "$target" "$text"; then
-    if ! start_agent_in_pane "$target" "$worktree" "$initial_prompt"; then
+    if ! start_agent_in_pane "$target" "$worktree"; then
       log "agent did not become ready in existing target $target"
       pane_tail "$target" >&2 || true
       return 1
@@ -1863,17 +1727,6 @@ approval_prompt_present() {
   return 0
 }
 
-trust_prompt_present() {
-  local text="$1"
-  local tail_text
-  [[ -n "$AGENT_TRUST_PROMPT_PATTERN" ]] || return 1
-  tail_text="$(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")"
-
-  printf '%s\n' "$tail_text" | grep -Eq "$AGENT_TRUST_PROMPT_PATTERN" || return 1
-
-  return 0
-}
-
 signature_for() {
   cksum | awk '{ print $1 ":" $2 }'
 }
@@ -1883,18 +1736,6 @@ maybe_approve_prompt() {
   local text="$2"
   local prompt_tail signature
 
-  if trust_prompt_present "$text"; then
-    prompt_tail="$(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")"
-    signature="$(printf '%s\n' "$prompt_tail" | signature_for)"
-    if [[ "${APPROVED_SIGNATURES[$target]:-}" != "$signature" ]]; then
-      tmux send-keys -t "$target" 1 Enter
-      APPROVED_SIGNATURES["$target"]="$signature"
-      log "approved agent trust prompt in $target"
-    fi
-    return 0
-  fi
-
-  target_looks_like_live_agent "$target" "$text" || return 0
   if approval_prompt_present "$text"; then
     prompt_tail="$(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")"
     signature="$(printf '%s\n' "$prompt_tail" | signature_for)"
@@ -1930,27 +1771,10 @@ tmux_state_for_session() {
       return 0
     fi
 
-    if agent_prompt_has_pending_input "$text"; then
-      state="pending input"
-      continue
-    fi
-
-    if [[ "$state" != "pending input" ]]; then
-      if pane_has_active_work_indicator "$text"; then
-        state="working"
-      elif agent_current_prompt_line "$text" >/dev/null; then
-        maybe_dismiss_agent_tip "$target" "$text"
-        text="$(pane_tail "$target" || true)"
-        if target_screen_is_idle "$target" "$text"; then
-          [[ "$state" == "unknown" ]] && state="idle"
-        elif [[ "$state" == "unknown" ]]; then
-          state="working"
-        fi
-      elif pane_looks_working "$text"; then
-        state="working"
-      elif [[ "$state" == "unknown" ]]; then
-        state="idle"
-      fi
+    if target_screen_is_idle "$target" "$text"; then
+      [[ "$state" == "unknown" ]] && state="idle"
+    elif [[ "$state" == "unknown" ]]; then
+      state="working"
     fi
   done < <(session_pane_targets "$session")
 
@@ -2097,14 +1921,11 @@ maybe_update_status_issue() {
 send_prompt_to_target() {
   local target="$1"
   local prompt="$2"
-  local safe_target buffer_name tmp attempt text
+  local safe_target buffer_name tmp attempt
   safe_target="$(sanitize_name "$target")"
   buffer_name="pr_watch_msg_$safe_target"
   tmp="$(watch_temp_file "pr-watch-prompt.$safe_target")"
 
-  save_last_prompt_for_target "$target" "$prompt"
-  text="$(pane_tail "$target" || true)"
-  maybe_dismiss_agent_tip "$target" "$text"
   printf '%s' "$prompt" >"$tmp"
 
   for ((attempt = 1; attempt <= PROMPT_SEND_ATTEMPTS; attempt++)); do
@@ -2348,24 +2169,6 @@ process_watch_item() {
   rm -f "$events_file" "$new_file" "$checks_file"
 }
 
-recover_pending_watcher_prompt() {
-  local target="$1"
-  local text="$2"
-  local last_prompt input_block
-
-  last_prompt="$(load_last_prompt_for_target "$target")"
-  [[ -n "$last_prompt" ]] || return 0
-  [[ "$last_prompt" == *"$RESOLVE_SKILL"* || "$last_prompt" == *"$PR_CREATE_SKILL"* ]] || return 0
-
-  agent_prompt_has_pending_input "$text" || return 0
-
-  input_block="$(agent_pending_input_block "$text" 2>/dev/null || true)"
-  if [[ "$input_block" == *"$RESOLVE_SKILL"* || "$input_block" == *"$PR_CREATE_SKILL"* ]]; then
-    log "submitting pending watcher prompt in $target"
-    tmux send-keys -t "$target" Enter
-  fi
-}
-
 monitor_configured_sessions() {
   local i session target text
 
@@ -2377,7 +2180,6 @@ monitor_configured_sessions() {
       text="$(pane_tail "$target" || true)"
       [[ -n "$text" ]] || continue
       maybe_approve_prompt "$target" "$text"
-      recover_pending_watcher_prompt "$target" "$text"
     done < <(session_pane_targets "$session")
   done
 }
@@ -2448,6 +2250,7 @@ main() {
     fi
 
     maybe_update_status_issue
+    persist_idle_screen_observations
     print_status_line "${#REPOS[@]}" "$POLL_SECONDS"
     "$ONCE" && break
     sleep "$POLL_SECONDS"
