@@ -25,17 +25,20 @@ the session, then deletes any safe `issue-N` worktree path because it may be lef
 If no tmux session exists, the same worktree cleanup still runs. Before fresh setup, the watcher
 also removes the reserved local `issue-N` branch so stale branch contents are not reused. Fresh
 issue worktrees must be created through `create_issue_worktree`, which is the boundary that calls
-`extras/git-worktree-add.sh --issue N issue-N`. That helper owns issue branch and worktree setup;
+`extras/git-worktree-add.sh issue-N`. That helper owns issue branch and worktree setup;
 the watcher should not bypass it with direct `git worktree add` calls in the issue setup flow. The
 issue is added to watch state only after the new agent is live. The normal tracked-issue path then
 sends the initial issue prompt once the agent's idle input prompt is visible.
 
 For tracked issue rows, the watcher treats the agent as idle when the captured pane screen repeats
-across polling checks. If the tracked tmux session no longer has a live agent, the issue row is
-removed and rediscovered through the fresh setup path. When the agent is idle and live, it checks
-whether the worktree HEAD is already contained in any known ref for the target repository default
-branch. If so, it sends the issue prompt. If the worktree has a new commit, it sends
-`slang-pr-create <origin-repo>`.
+across polling checks. Issue rows already present at the beginning of a poll are processed after
+discovery even if the issue is absent from the latest discovery result; issue rows appended during
+that discovery pass wait until the next poll. If the tracked tmux session no longer has a live
+agent, the issue row is removed and rediscovered through the fresh setup path. The same happens
+when the tracked worktree is missing or the tmux session is rooted somewhere else. When the agent is
+idle and live, it checks whether the worktree HEAD is already contained in any known ref for the
+target repository default branch. If so, it sends the issue prompt. If the worktree has a new
+commit, it sends `slang-pr-create <origin-repo>`.
 
 ## Issue State Flow
 
@@ -66,14 +69,16 @@ flowchart TD
     O -- succeed --> V
     N -- no --> V{"Delete `issue-N` branch and worktree path"}
     V -- failed --> Z
-    V -- succeed --> U{"create_issue_worktree calls `extras/git-worktree-add.sh --issue N issue-N`"}
+    V -- succeed --> U{"create_issue_worktree calls `extras/git-worktree-add.sh issue-N`"}
     U -- failed --> Z
     U -- succeed --> X{"Ensure/start agent and verify it is live"}
     X -- failed --> Z
     X -- succeed --> AA["Append issue row; phase `progress`; CI `not watched`"]
     AA --> Z
 
-    M --> MB{"tmux state is `no session` or `unknown`?"}
+    M --> MA{"Worktree exists and session cwd matches row?"}
+    MA -- no --> BA
+    MA -- yes --> MB{"tmux state is `no session` or `unknown`?"}
     MB -- yes --> BA["Remove the issue row"]
     BA --> N
     MB -- no --> AB{"tmux state is `idle`?"}
@@ -199,14 +204,21 @@ agent command line; it waits until the agent's idle input prompt is visible befo
   requires the tmux pane's current command to be a non-shell process.
 - `AGENT_PROMPT_LINE_PATTERN`: extended regex used to identify the agent's current prompt line.
 - `AGENT_PENDING_INPUT_PATTERN`: extended regex used to detect watcher-owned pending input. The
-  default matches the agent prompt marker plus watcher-owned skill prompts, so suggested prompt text
-  is not treated as pending input.
+  default matches watcher-owned skill prompts either immediately after the prompt marker or at the
+  start of a continuation line inside the current agent prompt block, so suggested prompt text is
+  not treated as pending input. The block can span continuation or blank lines after the prompt
+  marker.
 - `AGENT_WORKING_PATTERN`: extended regex used to detect work in progress.
 - `AGENT_APPROVAL_PATTERN`: extended regex used to detect approval prompts.
 - `AGENT_TRUST_PROMPT_PATTERN`: extended regex used to detect startup trust prompts. When this
   matches, the watcher sends `1` and Enter before waiting for agent readiness.
 - `AGENT_START_WAIT_SECONDS`: seconds between readiness checks after starting the agent.
 - `AGENT_START_ATTEMPTS`: number of readiness checks before startup is considered failed.
+- `AGENT_DISMISS_TIPS`: when `true`, the watcher sends Space followed by backspace at an idle
+  prompt before idle detection or prompt delivery. This clears transient prompt tips without
+  leaving typed input. Defaults to `true`.
+- `AGENT_TIP_DISMISS_WAIT_SECONDS`: short wait after the tip-dismiss keypress pair. Defaults to
+  `0.1`.
 
 ## Polling and State
 

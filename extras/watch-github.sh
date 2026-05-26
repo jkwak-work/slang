@@ -51,6 +51,8 @@ AGENT_SESSION_PREFIX="${AGENT_SESSION_PREFIX:-}"
 AGENT_SKILL_PREFIX="${AGENT_SKILL_PREFIX:-}"
 AGENT_START_WAIT_SECONDS="${AGENT_START_WAIT_SECONDS:-10}"
 AGENT_START_ATTEMPTS="${AGENT_START_ATTEMPTS:-5}"
+AGENT_DISMISS_TIPS="${AGENT_DISMISS_TIPS:-true}"
+AGENT_TIP_DISMISS_WAIT_SECONDS="${AGENT_TIP_DISMISS_WAIT_SECONDS:-0.1}"
 SEND_VERIFY_WAIT_SECONDS="${SEND_VERIFY_WAIT_SECONDS:-2}"
 PROMPT_ENTER_DELAY_SECONDS="${PROMPT_ENTER_DELAY_SECONDS:-3}"
 PROMPT_SEND_ATTEMPTS="${PROMPT_SEND_ATTEMPTS:-3}"
@@ -77,7 +79,7 @@ STATUS_LINE_ACTIVE=false
 finalize_agent_config() {
   local default_ready_pattern default_pending_input_pattern default_approval_pattern
   local default_prompt_line_pattern
-  local codex_prompt_marker claude_prompt_marker prompt_gap
+  local codex_prompt_marker claude_prompt_marker logical_line_start prompt_gap
 
   AGENT_COMMAND_NAME="$(basename "${AGENT_COMMAND%% *}")"
   if [[ -z "$AGENT_COMMAND_NAME" ]]; then
@@ -98,21 +100,22 @@ finalize_agent_config() {
 
   codex_prompt_marker=$'\342\200\272'
   claude_prompt_marker=$'\342\235\257'
+  logical_line_start=$'(^|\n)([[:space:]]|\302\240)*'
   prompt_gap=$'([[:space:]]|\302\240)*'
 
   default_ready_pattern="$AGENT_COMMAND_NAME"
   default_prompt_line_pattern="(^|[[:space:]])${codex_prompt_marker}|(^|[[:space:]])${claude_prompt_marker}"
-  default_pending_input_pattern="(^|[[:space:]])${codex_prompt_marker}${prompt_gap}\\\$(${RESOLVE_SKILL}|${PR_CREATE_SKILL})|(^|[[:space:]])${claude_prompt_marker}${prompt_gap}/(${RESOLVE_SKILL}|${PR_CREATE_SKILL})"
+  default_pending_input_pattern="${logical_line_start}(\\\$|/)(${RESOLVE_SKILL}|${PR_CREATE_SKILL})([[:space:]]|$)"
   case "$AGENT_COMMAND_NAME" in
     codex)
       default_ready_pattern=$'Codex|gpt-[0-9]|(^|[[:space:]])\342\200\272[[:space:]]*$'
       default_prompt_line_pattern="(^|[[:space:]])${codex_prompt_marker}"
-      default_pending_input_pattern="(^|[[:space:]])${codex_prompt_marker}${prompt_gap}\\\$(${RESOLVE_SKILL}|${PR_CREATE_SKILL})"
+      default_pending_input_pattern="((^|[[:space:]])${codex_prompt_marker}${prompt_gap}|${logical_line_start})\\\$(${RESOLVE_SKILL}|${PR_CREATE_SKILL})([[:space:]]|$)"
       ;;
     claude|claude-code)
       default_ready_pattern='Claude|(^|[[:space:]])>[[:space:]]*$'
       default_prompt_line_pattern="(^|[[:space:]])${claude_prompt_marker}"
-      default_pending_input_pattern="(^|[[:space:]])${claude_prompt_marker}${prompt_gap}/(${RESOLVE_SKILL}|${PR_CREATE_SKILL})"
+      default_pending_input_pattern="((^|[[:space:]])${claude_prompt_marker}${prompt_gap}|${logical_line_start})/(${RESOLVE_SKILL}|${PR_CREATE_SKILL})([[:space:]]|$)"
       ;;
   esac
 
@@ -1306,7 +1309,7 @@ track_open_pr_for_issue() {
 process_discovered_issue() {
   local repo="$1"
   local issue="$2"
-  local pr_url rc worktree session
+  local pr_url rc
 
   pr_url="$(first_open_related_pr_for_issue "$repo" "$issue")"
   rc=$?
@@ -1324,9 +1327,6 @@ process_discovered_issue() {
   esac
 
   if watch_state_find_item "$repo" "" "$issue" worktree session; then
-    if ! process_issue_item "$repo" "$issue" "$worktree" "$session"; then
-      start_discovered_issue "$repo" "$issue" || true
-    fi
     return 0
   fi
 
@@ -1529,6 +1529,17 @@ current_path_for_session() {
   printf '%s\n' "$path"
 }
 
+same_existing_dir() {
+  local left="$1"
+  local right="$2"
+  local left_path right_path
+
+  [[ -d "$left" && -d "$right" ]] || return 1
+  left_path="$(cd "$left" && pwd -P)" || return 1
+  right_path="$(cd "$right" && pwd -P)" || return 1
+  [[ "$left_path" == "$right_path" ]]
+}
+
 current_command_for_target() {
   local target="$1"
   tmux display-message -p -t "$target" '#{pane_current_command}' 2>/dev/null
@@ -1604,7 +1615,7 @@ target_looks_like_live_agent() {
 
 agent_prompt_has_pending_input() {
   local text="$1"
-  agent_pending_input_line "$text" >/dev/null
+  agent_pending_input_block "$text" >/dev/null
 }
 
 agent_current_prompt_line() {
@@ -1622,13 +1633,34 @@ agent_current_prompt_line() {
   printf '%s\n' "$last_prompt_line"
 }
 
-agent_pending_input_line() {
+agent_current_prompt_block() {
   local text="$1"
-  local last_prompt_line
+  local line prompt_block found=false
 
-  last_prompt_line="$(agent_current_prompt_line "$text")" || return 1
-  [[ "$last_prompt_line" =~ $AGENT_PENDING_INPUT_PATTERN ]] || return 1
-  printf '%s\n' "$last_prompt_line"
+  prompt_block=""
+  while IFS= read -r line; do
+    if [[ "$line" =~ $AGENT_PROMPT_LINE_PATTERN ]]; then
+      prompt_block="$line"
+      found=true
+    elif "$found"; then
+      prompt_block+=$'\n'"$line"
+    fi
+  done < <(printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES")
+
+  "$found" || return 1
+  printf '%s\n' "$prompt_block"
+}
+
+agent_pending_input_block() {
+  local text="$1"
+  local prompt_block
+
+  prompt_block="$(agent_current_prompt_block "$text")" || return 1
+  if printf '%s\n' "$prompt_block" | tail -n +2 | grep -Eq "$AGENT_WORKING_PATTERN"; then
+    return 1
+  fi
+  [[ "$prompt_block" =~ $AGENT_PENDING_INPUT_PATTERN ]] || return 1
+  printf '%s\n' "$prompt_block"
 }
 
 pane_looks_working() {
@@ -1640,7 +1672,32 @@ pane_looks_working() {
 pane_has_active_work_indicator() {
   local text="$1"
   printf '%s\n' "$text" | tail -n "$MATCH_TAIL_LINES" \
-    | grep -Eq 'Working \(|esc to interrupt|background terminal running'
+    | awk -v prompt_pattern="$AGENT_PROMPT_LINE_PATTERN" '
+      $0 ~ prompt_pattern {
+        last_prompt_line = NR
+      }
+      /Working \(|esc to interrupt|background terminal running/ {
+        last_work_line = NR
+      }
+      END {
+        exit !(last_work_line > last_prompt_line)
+      }
+    '
+}
+
+maybe_dismiss_agent_tip() {
+  local target="$1"
+  local text="$2"
+
+  [[ "$AGENT_DISMISS_TIPS" == "true" ]] || return 0
+  agent_current_prompt_line "$text" >/dev/null || return 0
+  agent_prompt_has_pending_input "$text" && return 0
+  pane_has_active_work_indicator "$text" && return 0
+  approval_prompt_present "$text" && return 0
+  trust_prompt_present "$text" && return 0
+
+  tmux send-keys -t "$target" Space BSpace || return 0
+  sleep "$AGENT_TIP_DISMISS_WAIT_SECONDS"
 }
 
 maybe_send_initial_prompt() {
@@ -1882,6 +1939,8 @@ tmux_state_for_session() {
       if pane_has_active_work_indicator "$text"; then
         state="working"
       elif agent_current_prompt_line "$text" >/dev/null; then
+        maybe_dismiss_agent_tip "$target" "$text"
+        text="$(pane_tail "$target" || true)"
         if target_screen_is_idle "$target" "$text"; then
           [[ "$state" == "unknown" ]] && state="idle"
         elif [[ "$state" == "unknown" ]]; then
@@ -2038,12 +2097,14 @@ maybe_update_status_issue() {
 send_prompt_to_target() {
   local target="$1"
   local prompt="$2"
-  local safe_target buffer_name tmp attempt
+  local safe_target buffer_name tmp attempt text
   safe_target="$(sanitize_name "$target")"
   buffer_name="pr_watch_msg_$safe_target"
   tmp="$(watch_temp_file "pr-watch-prompt.$safe_target")"
 
   save_last_prompt_for_target "$target" "$prompt"
+  text="$(pane_tail "$target" || true)"
+  maybe_dismiss_agent_tip "$target" "$text"
   printf '%s' "$prompt" >"$tmp"
 
   for ((attempt = 1; attempt <= PROMPT_SEND_ATTEMPTS; attempt++)); do
@@ -2084,12 +2145,18 @@ process_issue_item() {
   local issue="$2"
   local worktree="$3"
   local session="$4"
-  local key state target text prompt pr_base_repo compare_status
+  local key state target text prompt pr_base_repo compare_status pane_path
 
   key="$(state_key_for_issue "$repo" "$issue")"
   ensure_status_defaults "$key"
   write_status_field "$key" "ci" "not watched"
   write_status_field_if_absent "$key" "phase" "progress"
+
+  if [[ ! -d "$worktree" ]]; then
+    log "removing stale issue row for $repo#$issue because worktree is missing: $worktree"
+    remove_watch_state_item "$repo" "" "$issue"
+    return 1
+  fi
 
   state="$(tmux_state_for_session "$session")"
   if [[ "$state" == "no session" || "$state" == "unknown" ]]; then
@@ -2097,6 +2164,14 @@ process_issue_item() {
     remove_watch_state_item "$repo" "" "$issue"
     return 1
   fi
+
+  if ! pane_path="$(current_path_for_session "$session")" ||
+    ! same_existing_dir "$pane_path" "$worktree"; then
+    log "removing stale issue row for $repo#$issue because session $session is not rooted in $worktree"
+    remove_watch_state_item "$repo" "" "$issue"
+    return 1
+  fi
+
   [[ "$state" == "idle" ]] || return 0
   target="$(target_for_session "$session")"
   text="$(pane_tail "$target" || true)"
@@ -2276,7 +2351,7 @@ process_watch_item() {
 recover_pending_watcher_prompt() {
   local target="$1"
   local text="$2"
-  local last_prompt input_line
+  local last_prompt input_block
 
   last_prompt="$(load_last_prompt_for_target "$target")"
   [[ -n "$last_prompt" ]] || return 0
@@ -2284,8 +2359,8 @@ recover_pending_watcher_prompt() {
 
   agent_prompt_has_pending_input "$text" || return 0
 
-  input_line="$(agent_pending_input_line "$text" 2>/dev/null || true)"
-  if [[ "$input_line" == *"$RESOLVE_SKILL"* || "$input_line" == *"$PR_CREATE_SKILL"* ]]; then
+  input_block="$(agent_pending_input_block "$text" 2>/dev/null || true)"
+  if [[ "$input_block" == *"$RESOLVE_SKILL"* || "$input_block" == *"$PR_CREATE_SKILL"* ]]; then
     log "submitting pending watcher prompt in $target"
     tmux send-keys -t "$target" Enter
   fi
@@ -2308,7 +2383,7 @@ monitor_configured_sessions() {
 }
 
 main() {
-  local i
+  local i initial_issue_rows_file repo issue current_worktree current_session
 
   parse_args "$@"
   finalize_agent_config
@@ -2347,7 +2422,24 @@ main() {
 
   while true; do
     if read_watch_state; then
+      initial_issue_rows_file="$(watch_temp_file)"
+      for ((i = 0; i < ${#REPOS[@]}; i++)); do
+        [[ -n "${ISSUES[$i]}" ]] || continue
+        printf '%s\t%s\n' "${REPOS[$i]}" "${ISSUES[$i]}" >>"$initial_issue_rows_file"
+      done
+
       discover_copilot_issues
+
+      while IFS=$'\t' read -r repo issue; do
+        [[ -n "$repo" && -n "$issue" ]] || continue
+        if watch_state_find_item "$repo" "" "$issue" current_worktree current_session; then
+          if ! process_issue_item "$repo" "$issue" "$current_worktree" "$current_session"; then
+            start_discovered_issue "$repo" "$issue" || true
+          fi
+        fi
+      done <"$initial_issue_rows_file"
+      rm -f "$initial_issue_rows_file"
+
       for ((i = 0; i < ${#REPOS[@]}; i++)); do
         [[ -n "${PRS[$i]}" ]] || continue
         process_watch_item "${REPOS[$i]}" "${PRS[$i]}" "${WORKTREES[$i]}" "${SESSIONS[$i]}"
