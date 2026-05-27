@@ -49,64 +49,66 @@ a new commit, it sends `slang-pr-create <origin-repo>`.
 
 ```mermaid
 flowchart TD
-    A["Discover assigned open issue with `Copilot` label"] --> B["Find PR candidates"]
-    B --> C{"Related PR lookup succeeded?"}
-    C -- no --> Z["Log and skip this issue until the next poll"]
-    C -- yes --> D{"Any candidate is open, created by `@me`, and uses an `issue-N` head branch?"}
+    A["Discover assigned open issue with `Copilot` label"] --> B{"Find matching open PR?"}
+    B -- lookup failed --> Z["Log and skip this issue until the next poll"]
+    B -- found --> C{"PR row already tracked?"}
+    B -- none --> L{"Issue row already tracked?"}
 
-    D -- yes --> E{"Is that PR already tracked?"}
-    E -- yes --> F{"Is the issue row tracked?"}
-    F -- yes --> G["Remove the issue row"]
-    F -- no --> P0
-    G --> P0
-    E -- no --> H{"Is the issue row tracked?"}
-    H -- yes --> I["Replace the issue row with a PR row"]
-    H -- no --> J["Append a PR row"]
-    I --> K["Set phase `PR discovered`"]
-    J --> K
-    K --> P0["Continue with PR state flow"]
+    C -- yes --> D{"Issue row also tracked?"}
+    D -- yes --> E["Remove issue row"]
+    D -- no --> P0
+    E --> P0
+    C -- no --> F{"Issue row tracked?"}
+    F -- yes --> G["Replace issue row with PR row"]
+    F -- no --> H["Append PR row using issue worktree/session"]
+    G --> I["Set phase `PR discovered`"]
+    H --> I
+    I --> P0["Process PR rows in PR pass"]
 
-    D -- no --> L{"Is the issue row tracked?"}
-    L -- yes --> M["Process tracked issue row"]
+    L -- yes --> T0
     L -- no --> N{"Does `issue-N` tmux session exist?"}
-    N -- yes --> O{"Kill existing tmux session"}
+    N -- yes --> O{"Kill existing tmux session?"}
     O -- failed --> Z
-    O -- succeed --> V
-    N -- no --> V{"Delete `issue-N` branch and worktree path"}
+    O -- succeeded --> V
+    N -- no --> V{"Delete safe issue worktree path if present?"}
     V -- failed --> Z
-    V -- succeed --> U{"create_issue_worktree calls `extras/git-worktree-add.sh issue-N`"}
-    U -- failed --> Z
-    U -- succeed --> X{"Ensure/start agent and verify it is live"}
+    V -- succeeded --> W{"Delete local `issue-N` branch if present?"}
+    W -- failed --> Z
+    W -- succeeded --> X{"Run `extras/git-worktree-add.sh issue-N`?"}
     X -- failed --> Z
-    X -- succeed --> AA["Append issue row; phase `progress`; CI `not watched`"]
+    X -- succeeded --> Y{"Ensure/start agent and verify live?"}
+    Y -- failed --> Z
+    Y -- live --> AA["Append issue row; phase `Initalizing agent`; CI `N/A`"]
     AA --> Z
 
-    M --> MA{"Worktree exists and session cwd matches row?"}
-    MA -- no --> BA
-    MA -- yes --> MB{"tmux state is `no session` or `unknown`?"}
-    MB -- yes --> BA["Remove the issue row"]
-    BA --> N
-    MB -- no --> AB{"tmux state is `idle`?"}
-    AB -- no --> Z
-    AB -- yes --> Y{"Agent live?"}
-    Y -- no --> BA
-    Y -- yes --> AC{"Resolve PR base repo?"}
-    AC -- no --> AD["Set phase `repo check failed`"]
-    AD --> Z
-    AC -- yes --> AE{"HEAD is in default branch history?"}
-    AE -- yes --> AF["Send issue work prompt"]
-    AF --> AG{"Prompt sent?"}
-    AG -- yes --> AH["Set phase `issue prompt`"]
-    AG -- no --> AI["Set phase `dispatch failed`"]
-    AE -- compare failed --> AJ["Set phase `head check failed`"]
-    AE -- no --> AK["Send `slang-pr-create` prompt"]
-    AK --> AL{"Prompt sent?"}
-    AL -- yes --> AM["Set phase `create PR`"]
-    AL -- no --> AI
-    AH --> Z
-    AI --> Z
-    AJ --> Z
-    AM --> Z
+    T0["Issue row present at start of poll"] --> T1{"Worktree exists?"}
+    T1 -- no --> R
+    T1 -- yes --> T2{"tmux state is `no session` or `unknown`?"}
+    T2 -- yes --> R
+    T2 -- no --> T3{"Session cwd matches row worktree?"}
+    T3 -- no --> R["Remove issue row"]
+    R --> N
+    T3 -- yes --> T4{"tmux state is `idle`?"}
+    T4 -- no --> Z
+    T4 -- yes --> T5{"Target still looks like live agent?"}
+    T5 -- no --> R
+    T5 -- yes --> T6{"Resolve PR base repo?"}
+    T6 -- no --> T7["Set phase `repo check failed`"]
+    T7 --> Z
+    T6 -- yes --> T8{"HEAD is in default branch history?"}
+    T8 -- yes --> T9["Send issue work prompt"]
+    T9 --> T10{"Prompt sent?"}
+    T10 -- yes --> T11["Set phase `issue prompt`"]
+    T10 -- no --> T12["Set phase `dispatch failed`"]
+    T8 -- compare failed --> T13["Set phase `head check failed`"]
+    T8 -- no --> T14["Send `slang-pr-create` prompt"]
+    T14 --> T15{"Prompt sent?"}
+    T15 -- yes --> T16["Set phase `create PR`"]
+    T15 -- no --> T12
+    T11 --> Z
+    T12 --> Z
+    T13 --> Z
+    T16 --> Z
 ```
 
 ## PR State Flow
@@ -188,8 +190,10 @@ Options:
 - `--status-issue URL`: update a GitHub issue with watcher status once per polling pass. The URL
   must look like `https://github.com/OWNER/REPO/issues/NUMBER`.
   The managed status block shows `Item`, `Phase`, and `CI`. If watched tmux agent panes exist, the
-  block also appends their captured screens at the bottom as folded `details` sections. Each
-  summary shows the last 10 captured lines, and the expanded body is limited by `CAPTURE_LINES`.
+  block also appends their captured screens at the bottom as folded `details` sections. Each pane
+  shows the last 10 captured lines after the folded section; the expanded body contains earlier
+  captured lines so the visible tail is not duplicated. The combined capture is limited by
+  `CAPTURE_LINES`.
 
 ## Agent Configuration
 

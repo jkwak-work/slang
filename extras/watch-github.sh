@@ -1300,8 +1300,8 @@ start_discovered_issue() {
   fi
 
   append_watch_state_item "$repo" "" "$issue" "$worktree" "$worktree_name"
-  set_status_phase "$key" "progress"
-  write_status_field "$key" "ci" "not watched"
+  set_status_phase "$key" "Initalizing agent"
+  write_status_field "$key" "ci" "N/A"
   log "watching issue $repo#$issue in $worktree_name after starting agent at $target"
 }
 
@@ -1879,21 +1879,38 @@ render_markdown_code_block() {
   printf '%s\n' "$fence"
 }
 
-render_summary_tail_lines() {
+capture_tail_lines() {
   local text="$1"
-  local line
 
   if [[ -z "$text" ]]; then
-    printf '<code>[empty pane]</code><br>\n'
+    printf '[empty pane]\n'
     return 0
   fi
 
-  printf '%s\n' "$text" | sed -e 's/\r$//' | tail -n 10 |
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      printf '<code>'
-      html_text "$line"
-      printf '</code><br>\n'
-    done
+  printf '%s\n' "$text" | sed -e 's/\r$//' | tail -n 10
+}
+
+capture_without_tail_lines() {
+  local text="$1"
+
+  if [[ -z "$text" ]]; then
+    printf '[no earlier captured lines]\n'
+    return 0
+  fi
+
+  printf '%s\n' "$text" | sed -e 's/\r$//' | awk '
+    { lines[NR] = $0 }
+    END {
+      limit = NR - 10
+      if (limit <= 0) {
+        print "[no earlier captured lines]"
+      } else {
+        for (i = 1; i <= limit; i++) {
+          print lines[i]
+        }
+      }
+    }
+  '
 }
 
 render_status_pane_captures() {
@@ -1929,14 +1946,15 @@ render_status_pane_captures() {
       summary_label="$(html_text "$label")"
       summary_target="$(html_text "$target")"
       printf '<details>\n' >>"$output_file"
-      printf '<summary>\n%s (%s)<br>\nLast 10 lines:<br>\n' \
-        "$summary_label" "$summary_target" \
+      printf '<summary>%s (%s)</summary>\n\n' "$summary_label" "$summary_target" \
         >>"$output_file"
-      render_summary_tail_lines "$text" >>"$output_file"
-      printf '</summary>\n\n' >>"$output_file"
       printf '[%s](%s)\n\n' "$label" "$item_url" >>"$output_file"
-      render_markdown_code_block "$text" >>"$output_file"
+      printf 'Earlier captured lines:\n\n' >>"$output_file"
+      render_markdown_code_block "$(capture_without_tail_lines "$text")" >>"$output_file"
       printf '\n</details>\n\n' >>"$output_file"
+      printf 'Last 10 lines:\n\n' >>"$output_file"
+      render_markdown_code_block "$(capture_tail_lines "$text")" >>"$output_file"
+      printf '\n' >>"$output_file"
     done < <(agent_pane_targets_for_session "$session")
   done
 }
@@ -1961,8 +1979,8 @@ render_status_dashboard_block() {
     else
       label="$repo#$issue"
       item_url="https://github.com/$repo/issues/$issue"
-      write_status_field_if_absent "$key" "phase" "progress"
-      write_status_field "$key" "ci" "not watched"
+      write_status_field_if_absent "$key" "phase" "Initalizing agent"
+      write_status_field "$key" "ci" "N/A"
     fi
 
     phase="$(read_status_field "$key" "phase" "none")"
@@ -2115,8 +2133,8 @@ process_issue_item() {
 
   key="$(state_key_for_issue "$repo" "$issue")"
   ensure_status_defaults "$key"
-  write_status_field "$key" "ci" "not watched"
-  write_status_field_if_absent "$key" "phase" "progress"
+  write_status_field "$key" "ci" "N/A"
+  write_status_field_if_absent "$key" "phase" "Initalizing agent"
 
   if [[ ! -d "$worktree" ]]; then
     log "removing stale issue row for $repo#$issue because worktree is missing: $worktree"
