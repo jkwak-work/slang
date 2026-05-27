@@ -903,6 +903,24 @@ pr_state_for() {
   printf '%s\n' "${state,,}"
 }
 
+pr_has_copilot_label() {
+  local repo="$1"
+  local pr="$2"
+  local labels_file rc
+
+  labels_file="$(watch_temp_file)"
+  if ! "$GH_COMMAND" api "repos/$repo/issues/$pr" \
+    --jq '.labels[]?.name' >"$labels_file" </dev/null; then
+    rm -f "$labels_file"
+    return 2
+  fi
+
+  tr -d '\r' <"$labels_file" | grep -Fixq -- "$COPILOT_LABEL"
+  rc=$?
+  rm -f "$labels_file"
+  return "$rc"
+}
+
 pr_head_ref_matches_issue() {
   local head_ref="$1"
   local issue="$2"
@@ -2205,7 +2223,7 @@ process_watch_item() {
   local session="$4"
   local key comment_state_file events_file new_file new_comment_count
   local ci_state_file checks_file ci_failure_count ci_pending_count previous_signature current_signature
-  local pr_state
+  local pr_state pr_label_status
   local comment_needs_dispatch=false ci_needs_dispatch=false
   local ci_pending_changed=false ci_passing_changed=false
   local ci_signature_changed=false ci_state_ready=false ci_was_primed=false
@@ -2221,6 +2239,18 @@ process_watch_item() {
   if [[ "$pr_state" != "open" ]]; then
     log "removing watch-state item for $repo#$pr because PR state is $pr_state"
     remove_watch_state_item "$repo" "$pr" ""
+    return 0
+  fi
+
+  pr_label_status=0
+  pr_has_copilot_label "$repo" "$pr" || pr_label_status=$?
+  if [[ "$pr_label_status" -ne 0 ]]; then
+    if [[ "$pr_label_status" -eq 2 ]]; then
+      log "failed to fetch PR labels for $repo#$pr; pausing"
+    else
+      log "pausing $repo#$pr because it does not have label $COPILOT_LABEL"
+    fi
+    set_status_phase "$key" "paused"
     return 0
   fi
 
@@ -2300,7 +2330,11 @@ process_watch_item() {
 
   if "$comment_needs_dispatch" || "$ci_needs_dispatch"; then
     if dispatch_watch_prompt "$repo" "$pr" "$worktree" "$session" "$new_comment_count" "$ci_failure_count"; then
-      set_status_phase "$key" "addressing comments"
+      if "$comment_needs_dispatch"; then
+        set_status_phase "$key" "Addressing comments"
+      else
+        set_status_phase "$key" "All comments resolved"
+      fi
       if "$comment_needs_dispatch"; then
         append_seen_ids "$comment_state_file" "$new_file"
       fi

@@ -117,10 +117,14 @@ flowchart TD
 flowchart TD
     A["Poll a watch-state PR row"] --> B["Ensure status defaults"]
     B --> BA{"Fetch PR state?"}
-    BA -- no --> BB["Set phase `PR state unknown`; skip until next poll"]
+    BA -- no --> BB["Set phase `PR state unknown`"]
+    BB --> BZ["Skip until next poll"]
     BA -- yes --> BC{"PR state is `open`?"}
     BC -- no --> BD["Remove PR row from watch state"]
-    BC -- yes --> C{"Fetch comments, review comments, and reviews?"}
+    BC -- yes --> CA{"PR has configured Copilot label?"}
+    CA -- yes --> C{"Fetch comments, review comments, and reviews?"}
+    CA -- no --> CB["Set phase `paused`"]
+    CB --> BZ
     C -- no --> D["Log comment fetch failure"]
     C -- yes --> E{"Seen-id file exists?"}
     E -- no --> F["Create empty seen-id file"]
@@ -161,7 +165,11 @@ flowchart TD
 
     ZC -- yes --> ZD["Ensure/start agent and send `slang-pr-resolve-comments`"]
     ZD --> ZE{"Prompt sent?"}
-    ZE -- yes --> ZF["Set phase `addressing comments`; store seen IDs and failing-CI signature when applicable"]
+    ZE -- yes --> ZFA{Is there comment pending}
+    ZFA -- yes --> ZFB["Set phase `Addressing comments`"]
+    ZFA -- no --> ZFC["Set phase `All comments resolved`"]
+    ZFB --> ZF["store seen IDs and failing-CI signature when applicable"]
+    ZFC --> ZF
     ZE -- no --> ZG["Set phase `dispatch failed`; leave pending state for retry"]
     ZC -- no --> ZH{"CI pending change?"}
     ZH -- yes --> ZI["Store signature; set phase `CI pending`"]
@@ -235,7 +243,8 @@ agent command line; tracked issue processing sends it after the once-per-poll id
 - `WATCH_CI`: set to `false` to ignore CI check changes. Defaults to `true`.
 - `WATCH_COPILOT_ISSUES`: set to `false` to disable assigned Copilot issue discovery. Defaults
   to `true`.
-- `COPILOT_LABEL`: label used for issue discovery. Defaults to `Copilot`.
+- `COPILOT_LABEL`: label used for issue discovery and PR-row processing. PR-row matching ignores
+  case. Defaults to `Copilot`.
 - `ISSUE_LIST_LIMIT`: maximum number of assigned Copilot issues to list per poll. Defaults to
   `100`.
 - `WATCH_ISSUE_REPO`: repository used for assigned issue discovery. Defaults to
