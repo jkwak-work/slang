@@ -188,7 +188,8 @@ Options:
 - `--status-issue URL`: update a GitHub issue with watcher status once per polling pass. The URL
   must look like `https://github.com/OWNER/REPO/issues/NUMBER`.
   The managed status block shows `Item`, `Phase`, and `CI`. If watched tmux agent panes exist, the
-  block also appends their captured screens at the bottom, limited by `CAPTURE_LINES`.
+  block also appends their captured screens at the bottom as folded `details` sections. Each
+  summary shows the last 10 captured lines, and the expanded body is limited by `CAPTURE_LINES`.
 
 ## Agent Configuration
 

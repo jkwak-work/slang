@@ -1253,8 +1253,8 @@ create_issue_worktree() {
   delete_issue_branch "$worktree_name" "$worktree_log" || return 1
 
   log "creating issue worktree $worktree_name for $repo#$issue"
-  if ! GH_REPO="$repo" GIT_EXE="$GIT_COMMAND" GH_EXE="$GH_COMMAND" \
-    extras/git-worktree-add.sh "$worktree_name" >>"$worktree_log" 2>&1; then
+  if ! GIT_EXE="$GIT_COMMAND" extras/git-worktree-add.sh "$worktree_name" \
+    >>"$worktree_log" 2>&1; then
     log "git-worktree-add failed for $repo#$issue; see $worktree_log"
     return 1
   fi
@@ -1854,9 +1854,51 @@ markdown_cell() {
   printf '%s' "$value"
 }
 
+html_text() {
+  local value="$1"
+  value="${value//&/&amp;}"
+  value="${value//</&lt;}"
+  value="${value//>/&gt;}"
+  printf '%s' "$value"
+}
+
+render_markdown_code_block() {
+  local text="$1"
+  local fence='```'
+
+  while printf '%s\n' "$text" | grep -Fq "$fence"; do
+    fence="${fence}\`"
+  done
+
+  printf '%stext\n' "$fence"
+  if [[ -n "$text" ]]; then
+    printf '%s\n' "$text" | sed -e 's/\r$//'
+  else
+    printf '[empty pane]\n'
+  fi
+  printf '%s\n' "$fence"
+}
+
+render_summary_tail_lines() {
+  local text="$1"
+  local line
+
+  if [[ -z "$text" ]]; then
+    printf '<code>[empty pane]</code><br>\n'
+    return 0
+  fi
+
+  printf '%s\n' "$text" | sed -e 's/\r$//' | tail -n 10 |
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      printf '<code>'
+      html_text "$line"
+      printf '</code><br>\n'
+    done
+}
+
 render_status_pane_captures() {
   local output_file="$1"
-  local i repo pr issue session label item_url target text
+  local i repo pr issue session label item_url target text summary_label summary_target
   local captures_found=false
   declare -A captured_targets=()
 
@@ -1884,13 +1926,17 @@ render_status_pane_captures() {
         printf '\n## Tmux Pane Captures\n\n' >>"$output_file"
         captures_found=true
       fi
-      printf '### [%s](%s) (`%s`)\n\n' "$label" "$item_url" "$target" >>"$output_file"
-      if [[ -n "$text" ]]; then
-        printf '%s\n' "$text" | sed -e 's/\r$//' -e 's/^/    /' >>"$output_file"
-      else
-        printf '    [empty pane]\n' >>"$output_file"
-      fi
-      printf '\n' >>"$output_file"
+      summary_label="$(html_text "$label")"
+      summary_target="$(html_text "$target")"
+      printf '<details>\n' >>"$output_file"
+      printf '<summary>\n%s (%s)<br>\nLast 10 lines:<br>\n' \
+        "$summary_label" "$summary_target" \
+        >>"$output_file"
+      render_summary_tail_lines "$text" >>"$output_file"
+      printf '</summary>\n\n' >>"$output_file"
+      printf '[%s](%s)\n\n' "$label" "$item_url" >>"$output_file"
+      render_markdown_code_block "$text" >>"$output_file"
+      printf '\n</details>\n\n' >>"$output_file"
     done < <(agent_pane_targets_for_session "$session")
   done
 }
