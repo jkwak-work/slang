@@ -655,6 +655,12 @@ class WatchGithub:
         labels = [label.get("name", "") for label in json.loads(result.stdout).get("labels", [])]
         return 0 if any(label.lower() == self.copilot_label.lower() for label in labels) else 1
 
+    def issue_or_pr_title(self, repo: str, number: str) -> str:
+        result = self.run_cmd([self.gh_command, "api", f"repos/{repo}/issues/{number}"])
+        if result.returncode != 0:
+            return ""
+        return str(json.loads(result.stdout).get("title", "")).strip()
+
     @staticmethod
     def pr_head_ref_matches_issue(head_ref: str, issue: str) -> bool:
         return f"issue-{issue}" in head_ref
@@ -1322,16 +1328,22 @@ class WatchGithub:
             return "[no earlier captured lines]\n"
         return "\n".join(lines[:-10]) + "\n"
 
-    def render_status_pane_captures(self) -> str:
+    def render_status_pane_captures(self, titles: dict[tuple[str, str], str] | None = None) -> str:
         captured_targets: set[str] = set()
         chunks: list[str] = []
         for item in self.items:
-            label = f"{item.repo}#{item.pr or item.issue}"
+            number = item.pr or item.issue
+            label = f"{item.repo}#{number}"
+            title: str | None = None
+            if titles is not None:
+                title = titles.get((item.repo, number), "")
             item_url = f"https://github.com/{item.repo}/pull/{item.pr}" if item.pr else f"https://github.com/{item.repo}/issues/{item.issue}"
             for target in self.agent_pane_targets_for_session(item.session):
                 if not target or target in captured_targets:
                     continue
                 captured_targets.add(target)
+                if title is None:
+                    title = self.issue_or_pr_title(item.repo, number)
                 text = self.pane_tail(target)
                 if not chunks:
                     chunks.append("\n## Tmux Pane Captures\n\n")
@@ -1341,6 +1353,8 @@ class WatchGithub:
                 chunks.append("Earlier captured lines:\n\n")
                 chunks.append(self.render_markdown_code_block(self.capture_without_tail_lines(text)))
                 chunks.append("\n</details>\n\n")
+                if title:
+                    chunks.append(f"{html.escape(title)}\n\n")
                 chunks.append("Last 10 lines:\n\n")
                 chunks.append(self.render_markdown_code_block(self.capture_tail_lines(text)))
                 chunks.append("\n")
@@ -1348,6 +1362,7 @@ class WatchGithub:
 
     def render_status_dashboard_block(self) -> str:
         rows = []
+        titles: dict[tuple[str, str], str] = {}
         for item in self.items:
             key = self.state_key_for_item(item)
             self.ensure_status_defaults(key)
@@ -1361,18 +1376,22 @@ class WatchGithub:
                 self.write_status_field(key, "ci", "N/A")
             phase = self.markdown_cell(self.read_status_field(key, "phase", "none"))
             ci = self.markdown_cell(self.read_status_field(key, "ci", "unknown"))
-            rows.append(f"{label}\t| [{label}]({item_url}) | {phase} | {ci} |")
+            number = item.pr or item.issue
+            title = self.issue_or_pr_title(item.repo, number)
+            titles[(item.repo, number)] = title
+            title_cell = self.markdown_cell(title)
+            rows.append(f"{label}\t| [{label}]({item_url}) | {phase} | {ci} | {title_cell} |")
         body = [
             STATUS_BLOCK_START,
             "# Agent Watcher Status",
             "",
             f"Last updated: {time.strftime('%m-%d %H:%M %Z')}",
             "",
-            "| Item | Phase | CI |",
-            "|---|---|---|",
+            "| Item | Status | CI | Title |",
+            "|---|---|---|---|",
         ]
         body.extend(row.split("\t", 1)[1] for row in sorted(rows))
-        captures = self.render_status_pane_captures()
+        captures = self.render_status_pane_captures(titles)
         return "\n".join(body) + "\n" + captures + f"\n{STATUS_BLOCK_END}\n"
 
     @staticmethod
