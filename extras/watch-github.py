@@ -159,7 +159,6 @@ class WatchGithub:
         self.idle_screen_results: dict[str, str] = {}
         self.last_status_issue_message = ""
         self.status_line_active = False
-        self.temp_dir: Path | None = None
 
     def run_cmd(
         self,
@@ -222,19 +221,20 @@ class WatchGithub:
     def record_status_issue_update(self) -> None:
         self.last_status_issue_message = f"status issue updated at {time.strftime('%H:%M:%S')}"
 
-    def watch_temp_file(self, prefix: str = "watch-github") -> Path:
-        if self.temp_dir is None:
-            fd, name = tempfile.mkstemp(prefix=f"{prefix}.")
-        else:
-            fd, name = tempfile.mkstemp(prefix=f"{prefix}.", dir=self.temp_dir)
-        os.close(fd)
-        return Path(name)
+    @staticmethod
+    def write_text_atomic(path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        tmp = Path(name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as out:
+                out.write(text)
+            os.replace(tmp, path)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def cleanup(self) -> None:
-        temp_dir = self.temp_dir
-        self.temp_dir = None
-        if temp_dir and temp_dir.is_dir():
-            shutil.rmtree(temp_dir, ignore_errors=True)
         self.finish_status_line()
 
     def command_path_for_log(self, command: str) -> str:
@@ -258,9 +258,6 @@ class WatchGithub:
             self.need_command("wslpath")
             return self.run_cmd(["wslpath", "-w", path], check=True).stdout.strip()
         return path
-
-    def path_for_gh_file_arg(self, path: str | Path) -> str:
-        return self.path_for_host_command(self.gh_command, path)
 
     def path_for_git_path_arg(self, path: str | Path) -> str:
         return self.path_for_host_command(self.git_command, path)
@@ -597,43 +594,41 @@ class WatchGithub:
     def replace_watch_state_item(
         self, old_repo: str, old_pr: str, old_issue: str, new_repo: str, new_pr: str, worktree: str, session: str
     ) -> None:
-        tmp = self.watch_temp_file()
         replaced = False
+        output: list[str] = []
         lines = self.watch_state_file.read_text().splitlines()
-        with tmp.open("w") as out:
-            for line in lines:
-                parsed = self.parse_watch_state_fields(line)
-                if (
-                    not replaced
-                    and parsed
-                    and parsed.repo == old_repo
-                    and ((old_pr and parsed.pr == old_pr) or (old_issue and parsed.issue == old_issue))
-                ):
-                    out.write(f"https://github.com/{new_repo}/pull/{new_pr} {worktree} {session}\n")
-                    replaced = True
-                else:
-                    out.write(line + "\n")
-            if not replaced:
-                out.write(f"https://github.com/{new_repo}/pull/{new_pr} {worktree} {session}\n")
-        shutil.move(str(tmp), self.watch_state_file)
+        for line in lines:
+            parsed = self.parse_watch_state_fields(line)
+            if (
+                not replaced
+                and parsed
+                and parsed.repo == old_repo
+                and ((old_pr and parsed.pr == old_pr) or (old_issue and parsed.issue == old_issue))
+            ):
+                output.append(f"https://github.com/{new_repo}/pull/{new_pr} {worktree} {session}\n")
+                replaced = True
+            else:
+                output.append(line + "\n")
+        if not replaced:
+            output.append(f"https://github.com/{new_repo}/pull/{new_pr} {worktree} {session}\n")
+        self.write_text_atomic(self.watch_state_file, "".join(output))
         self.log(f"updated watch-state item to https://github.com/{new_repo}/pull/{new_pr} worktree={worktree} session={session}")
         self.read_watch_state()
 
     def remove_watch_state_item(self, old_repo: str, old_pr: str, old_issue: str) -> None:
-        tmp = self.watch_temp_file()
         removed = False
-        with tmp.open("w") as out:
-            for line in self.watch_state_file.read_text().splitlines():
-                parsed = self.parse_watch_state_fields(line)
-                if (
-                    parsed
-                    and parsed.repo == old_repo
-                    and ((old_pr and parsed.pr == old_pr) or (old_issue and parsed.issue == old_issue))
-                ):
-                    removed = True
-                    continue
-                out.write(line + "\n")
-        shutil.move(str(tmp), self.watch_state_file)
+        output: list[str] = []
+        for line in self.watch_state_file.read_text().splitlines():
+            parsed = self.parse_watch_state_fields(line)
+            if (
+                parsed
+                and parsed.repo == old_repo
+                and ((old_pr and parsed.pr == old_pr) or (old_issue and parsed.issue == old_issue))
+            ):
+                removed = True
+                continue
+            output.append(line + "\n")
+        self.write_text_atomic(self.watch_state_file, "".join(output))
         if removed:
             self.log(f"removed watch-state item for {old_repo}#{old_pr or old_issue}")
             self.read_watch_state()
@@ -1058,7 +1053,7 @@ class WatchGithub:
     def append_seen_ids(state_file: Path, events: list[dict[str, Any]]) -> None:
         seen = set(state_file.read_text().splitlines()) if state_file.exists() else set()
         seen.update(str(event["id"]) for event in events if event.get("id"))
-        state_file.write_text("".join(f"{item}\n" for item in sorted(seen) if item))
+        WatchGithub.write_text_atomic(state_file, "".join(f"{item}\n" for item in sorted(seen) if item))
 
     @staticmethod
     def collect_new_events(state_file: Path, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1261,8 +1256,8 @@ class WatchGithub:
                 return None
         return target
 
-    def paste_prompt_once(self, target: str, buffer_name: str, tmp: Path) -> bool:
-        if self.run_cmd(["tmux", "load-buffer", "-b", buffer_name, str(tmp)]).returncode != 0:
+    def paste_prompt_once(self, target: str, buffer_name: str, prompt: str) -> bool:
+        if self.run_cmd(["tmux", "load-buffer", "-b", buffer_name, "-"], input_text=prompt).returncode != 0:
             return False
         if self.run_cmd(["tmux", "paste-buffer", "-b", buffer_name, "-t", target]).returncode != 0:
             self.run_cmd(["tmux", "delete-buffer", "-b", buffer_name])
@@ -1273,18 +1268,13 @@ class WatchGithub:
     def send_prompt_to_target(self, target: str, prompt: str) -> bool:
         safe_target = sanitize_name(target)
         buffer_name = f"pr_watch_msg_{safe_target}"
-        tmp = self.watch_temp_file(f"pr-watch-prompt.{safe_target}")
-        tmp.write_text(prompt)
-        try:
-            for _ in range(self.prompt_send_attempts):
-                if not self.paste_prompt_once(target, buffer_name, tmp):
-                    continue
-                time.sleep(self.prompt_enter_delay_seconds)
-                if self.run_cmd(["tmux", "send-keys", "-t", target, "Enter"]).returncode == 0:
-                    return True
-            return False
-        finally:
-            tmp.unlink(missing_ok=True)
+        for _ in range(self.prompt_send_attempts):
+            if not self.paste_prompt_once(target, buffer_name, prompt):
+                continue
+            time.sleep(self.prompt_enter_delay_seconds)
+            if self.run_cmd(["tmux", "send-keys", "-t", target, "Enter"]).returncode == 0:
+                return True
+        return False
 
     def tmux_state_for_session(self, session: str) -> str:
         if not self.tmux_session_exists(session):
@@ -1432,9 +1422,6 @@ class WatchGithub:
         new_body = self.replace_status_block(result.stdout, block)
         if result.stdout == new_body:
             return
-        body_file = self.watch_temp_file("status-body")
-        body_file.write_text(new_body)
-        gh_body_file = self.path_for_gh_file_arg(body_file)
         edit = self.run_cmd(
             [
                 self.gh_command,
@@ -1444,14 +1431,14 @@ class WatchGithub:
                 "--repo",
                 self.status_issue_repo,
                 "--body-file",
-                gh_body_file,
-            ]
+                "-",
+            ],
+            input_text=new_body,
         )
         if edit.returncode == 0:
             self.record_status_issue_update()
         else:
             self.log(f"failed to update status issue {self.status_issue_repo}#{self.status_issue_number}")
-        body_file.unlink(missing_ok=True)
 
     def dispatch_watch_prompt(self, repo: str, pr: str, worktree: str, session: str, comment_count: int, ci_failure_count: int) -> bool:
         self.log(f"dispatching prompt for {repo}#{pr} to tmux session {session} (comments={comment_count}, ci_failures={ci_failure_count})")
@@ -1597,7 +1584,8 @@ class WatchGithub:
 
         if comment_needs_dispatch or ci_needs_dispatch:
             if not pr_allows_dispatch:
-                self.log(f"skipping prompt for {repo}#{pr} while PR is paused")
+                # self.log(f"skipping prompt for {repo}#{pr} while PR is paused")
+                pass
             elif self.dispatch_watch_prompt(repo, pr, worktree, session, new_comment_count, ci_failure_count):
                 self.set_status_phase(key, "Addressing comments" if comment_needs_dispatch else "All comments resolved")
                 if comment_needs_dispatch:
@@ -1610,11 +1598,11 @@ class WatchGithub:
         elif ci_pending_changed:
             ci_state_file.write_text(current_signature + "\n")
             self.set_status_phase(key, "CI pending")
-            self.log(f"CI pending for {repo}#{pr}")
+            # self.log(f"CI pending for {repo}#{pr}")
         elif ci_passing_changed:
             ci_state_file.write_text(current_signature + "\n")
             self.set_status_phase(key, "CI passing")
-            self.log(f"CI passing for {repo}#{pr}")
+            # self.log(f"CI passing for {repo}#{pr}")
         elif ci_was_primed:
             if ci_failure_count > 0:
                 self.set_status_phase(key, "CI failing")
@@ -1662,7 +1650,7 @@ class WatchGithub:
             "tmux",
         ):
             self.need_command(command)
-        if self.command_uses_windows_paths(self.gh_command) or self.command_uses_windows_paths(self.git_command):
+        if self.command_uses_windows_paths(self.git_command):
             self.need_command("wslpath")
         self.log_startup_tools()
         self.require_repo_root()
@@ -1670,7 +1658,6 @@ class WatchGithub:
         if self.run_cmd([self.gh_command, "auth", "status"]).returncode != 0:
             self.die(f"{self.gh_command} is not authenticated")
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.temp_dir = Path(tempfile.mkdtemp(prefix="watch-github."))
 
         while True:
             self.poll_once()

@@ -274,8 +274,8 @@ agent command line; tracked issue processing sends it after the once-per-poll id
 - `GIT_COMMAND`: Git command. Defaults to `git.exe` under WSL when available, otherwise `git`.
 - `DEFAULT_BRANCH`: override when `origin/HEAD` is unavailable.
 
-When `GH_COMMAND` or `GIT_COMMAND` resolves to a Windows `.exe` under WSL, local temporary files
-and worktree paths passed to those tools are converted to Windows paths before invocation.
+When `GIT_COMMAND` resolves to a Windows `.exe` under WSL, worktree paths passed to Git are
+converted to Windows paths before invocation.
 
 The script must be run from the repository default branch, and the GitHub CLI must already be
 authenticated.
