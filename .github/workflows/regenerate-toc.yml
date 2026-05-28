@@ -1,32 +1,122 @@
 name: Regenerate TOC
+# Security note:
+# PR branches can come from forks. The generation job checks out and updates the PR branch
+# without bot secrets, then the apply job validates and commits only the generated patch.
 on:
   repository_dispatch:
     types: [regenerate-toc-command]
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 jobs:
-  regenerate-toc:
+  validate-dispatch:
     if: >-
       github.repository == 'shader-slang/slang' &&
-      github.event.client_payload.github.payload.repository.full_name == 'shader-slang/slang' &&
-      github.event.client_payload.pull_request.base.repo.full_name == 'shader-slang/slang'
+      github.event.client_payload.github.payload.repository.full_name == 'shader-slang/slang'
     runs-on: ubuntu-latest
+    outputs:
+      base-ref: ${{ steps.validate.outputs.base-ref }}
+      comment-id: ${{ steps.validate.outputs.comment-id }}
+      head-ref: ${{ steps.validate.outputs.head-ref }}
+      head-repository: ${{ steps.validate.outputs.head-repository }}
+      pr-number: ${{ steps.validate.outputs.pr-number }}
+      pr-url: ${{ steps.validate.outputs.pr-url }}
+    steps:
+      - name: Validate dispatch payload
+        id: validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ github.event.client_payload.github.payload.comment.id }}
+          PAYLOAD_BASE_REPOSITORY: ${{ github.event.client_payload.pull_request.base.repo.full_name }}
+          PAYLOAD_REPOSITORY: ${{ github.event.client_payload.github.payload.repository.full_name }}
+          PR_NUMBER: ${{ github.event.client_payload.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$PR_NUMBER" || -z "$COMMENT_ID" ]]; then
+            echo "Missing pull request number or comment id in dispatch payload" >&2
+            exit 1
+          fi
+
+          if [[ "$PAYLOAD_REPOSITORY" != "shader-slang/slang" ||
+                "$PAYLOAD_BASE_REPOSITORY" != "shader-slang/slang" ]]; then
+            echo "Dispatch payload does not target shader-slang/slang" >&2
+            exit 1
+          fi
+
+          api() {
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$@"
+          }
+
+          pr_json=$(api "$GITHUB_API_URL/repos/shader-slang/slang/pulls/$PR_NUMBER")
+          comment_json=$(api "$GITHUB_API_URL/repos/shader-slang/slang/issues/comments/$COMMENT_ID")
+
+          pr_number=$(jq -r '.number' <<<"$pr_json")
+          pr_url=$(jq -r '.html_url' <<<"$pr_json")
+          base_repository=$(jq -r '.base.repo.full_name' <<<"$pr_json")
+          base_ref=$(jq -r '.base.ref' <<<"$pr_json")
+          head_repository=$(jq -r '.head.repo.full_name' <<<"$pr_json")
+          head_ref=$(jq -r '.head.ref' <<<"$pr_json")
+          comment_issue_url=$(jq -r '.issue_url' <<<"$comment_json")
+          comment_body=$(jq -r '.body // ""' <<<"$comment_json")
+          comment_user=$(jq -r '.user.login // ""' <<<"$comment_json")
+
+          if [[ "$pr_number" != "$PR_NUMBER" ||
+                "$base_repository" != "shader-slang/slang" ||
+                "$comment_issue_url" != "$GITHUB_API_URL/repos/shader-slang/slang/issues/$PR_NUMBER" ||
+                ! "$comment_body" =~ ^[[:space:]]*/regenerate-toc([[:space:]]|$) ]]; then
+            echo "Dispatch payload does not match an authorized /regenerate-toc pull request comment" >&2
+            exit 1
+          fi
+
+          permission_json=$(api "$GITHUB_API_URL/repos/shader-slang/slang/collaborators/$comment_user/permission")
+          permission=$(jq -r '.permission' <<<"$permission_json")
+          case "$permission" in
+            admin | maintain | write) ;;
+            *)
+              echo "Comment author does not have write permission" >&2
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "base-ref=$base_ref"
+            echo "comment-id=$COMMENT_ID"
+            echo "head-ref=$head_ref"
+            echo "head-repository=$head_repository"
+            echo "pr-number=$pr_number"
+            echo "pr-url=$pr_url"
+          } >> "$GITHUB_OUTPUT"
+
+  regenerate-toc-pr-branch:
+    needs: validate-dispatch
+    runs-on: ubuntu-latest
+    outputs:
+      has-changes: ${{ steps.toc-patch.outputs.has-changes }}
+      head-sha: ${{ steps.toc-patch.outputs.head-sha }}
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event.client_payload.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.client_payload.pull_request.head.ref }}
+          repository: ${{ needs.validate-dispatch.outputs.head-repository }}
+          ref: ${{ needs.validate-dispatch.outputs.head-ref }}
           path: pr-branch
           persist-credentials: false
+          token: ${{ github.token }}
 
       - name: Checkout target branch
         uses: actions/checkout@v4
         with:
           repository: shader-slang/slang
-          ref: ${{ github.event.client_payload.pull_request.base.ref }}
+          ref: ${{ needs.validate-dispatch.outputs.base-ref }}
           path: target-branch
           persist-credentials: false
+          token: ${{ github.token }}
 
       - name: Install Mono
         run: |
@@ -38,32 +128,109 @@ jobs:
         run: |
           ./target-branch/docs/build_toc.sh --source ./pr-branch
 
+      - name: Create ToC patch
+        id: toc-patch
+        run: |
+          set -euo pipefail
+          echo "head-sha=$(git -C pr-branch rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git -C pr-branch diff --binary -- . > toc.patch
+          if [[ -s toc.patch ]]; then
+            echo "has-changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload ToC patch
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v4
+        with:
+          name: toc-patch
+          path: toc.patch
+          if-no-files-found: error
+          retention-days: 1
+
+  apply-toc:
+    needs: [validate-dispatch, regenerate-toc-pr-branch]
+    if: >-
+      always() &&
+      needs.validate-dispatch.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        if: needs.regenerate-toc-pr-branch.result == 'success' && needs.regenerate-toc-pr-branch.outputs.has-changes == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.validate-dispatch.outputs.head-repository }}
+          ref: ${{ needs.validate-dispatch.outputs.head-ref }}
+          path: pr-branch
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Download ToC patch
+        if: needs.regenerate-toc-pr-branch.result == 'success' && needs.regenerate-toc-pr-branch.outputs.has-changes == 'true'
+        uses: actions/download-artifact@81eafdc926c95ab3a46553696557fe28c599a41a # v4
+        with:
+          name: toc-patch
+          path: toc-patch
+
+      - name: Apply ToC patch
+        id: apply-patch
+        if: needs.regenerate-toc-pr-branch.result == 'success' && needs.regenerate-toc-pr-branch.outputs.has-changes == 'true'
+        run: |
+          set -euo pipefail
+          patch_file="$GITHUB_WORKSPACE/toc-patch/toc.patch"
+          if [[ ! -f "$patch_file" || -L "$patch_file" ]]; then
+            echo "ToC patch artifact is missing or invalid" >&2
+            exit 1
+          fi
+          expected_head_sha="${{ needs.regenerate-toc-pr-branch.outputs.head-sha }}"
+          actual_head_sha=$(git -C pr-branch rev-parse HEAD)
+          if [[ "$actual_head_sha" != "$expected_head_sha" ]]; then
+            echo "PR branch changed after regenerating ToC; please rerun /regenerate-toc" >&2
+            exit 1
+          fi
+          max_size=$((25 * 1024 * 1024))
+          actual_size=$(wc -c < "$patch_file")
+          if [[ "$actual_size" -gt "$max_size" ]]; then
+            echo "ToC patch artifact is too large" >&2
+            exit 1
+          fi
+          git -C pr-branch apply --check "$patch_file"
+          git -C pr-branch apply "$patch_file"
+
       - name: Configure Git commit signing
         id: git-info
+        if: needs.regenerate-toc-pr-branch.result == 'success' && needs.regenerate-toc-pr-branch.outputs.has-changes == 'true'
+        env:
+          SLANGBOT_PAT: ${{ secrets.SLANGBOT_PAT }}
+          SLANGBOT_SIGNING_KEY: ${{ secrets.SLANGBOT_SIGNING_KEY }}
         run: |
-          echo "${{ secrets.SLANGBOT_SIGNING_KEY }}" > "${{runner.temp}}"/signing_key
+          set -euo pipefail
+          printf '%s\n' "$SLANGBOT_SIGNING_KEY" > "${{runner.temp}}"/signing_key
           chmod 600 "${{runner.temp}}"/signing_key
           git -C pr-branch config commit.gpgsign true
           git -C pr-branch config gpg.format ssh
           git -C pr-branch config user.signingkey "${{runner.temp}}"/signing_key
-          bot_info=$(curl -s -H "Authorization: Bearer ${{ secrets.SLANGBOT_PAT }}" \
+          bot_info=$(curl -fsSL -H "Authorization: Bearer $SLANGBOT_PAT" \
             "https://api.github.com/user")
-          echo "bot_identity=$(echo $bot_info | jq --raw-output '.login + " <" + (.id|tostring) + "+" + .login + "@users.noreply.github.com>"')" >> $GITHUB_OUTPUT
-          echo "bot_name=$(echo $bot_info | jq --raw-output '.login')" >> $GITHUB_OUTPUT
+          bot_login=$(jq --raw-output '.login' <<<"$bot_info")
+          bot_id=$(jq --raw-output '.id' <<<"$bot_info")
+          echo "bot_identity=$bot_login <$bot_id+$bot_login@users.noreply.github.com>" >> "$GITHUB_OUTPUT"
+          echo "bot_name=$bot_login" >> "$GITHUB_OUTPUT"
 
       - name: Create Pull Request
         id: create-pr
+        if: needs.regenerate-toc-pr-branch.result == 'success' && needs.regenerate-toc-pr-branch.outputs.has-changes == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.SLANGBOT_PAT }}
           path: pr-branch
           commit-message: "regenerate documentation Table of Contents"
-          title: "Regenerate documentation ToC for PR #${{ github.event.client_payload.pull_request.number }}"
-          body: "Automated ToC generation for ${{ github.event.client_payload.pull_request.html_url }}"
+          title: "Regenerate documentation ToC for PR #${{ needs.validate-dispatch.outputs.pr-number }}"
+          body: "Automated ToC generation for ${{ needs.validate-dispatch.outputs.pr-url }}"
           committer: ${{ steps.git-info.outputs.bot_identity }}
           author: ${{ steps.git-info.outputs.bot_identity }}
-          branch: regenerate-toc-${{ github.event.client_payload.pull_request.number }}-${{ github.event.client_payload.pull_request.head.ref }}
-          base: ${{ github.event.client_payload.pull_request.head.ref }}
+          branch: regenerate-toc-${{ needs.validate-dispatch.outputs.pr-number }}-${{ needs.validate-dispatch.outputs.head-ref }}
+          base: ${{ needs.validate-dispatch.outputs.head-ref }}
           push-to-fork: ${{ steps.git-info.outputs.bot_name }}/slang
           delete-branch: true
 
@@ -77,22 +244,26 @@ jobs:
         with:
           token: ${{ secrets.SLANGBOT_PAT }}
           repository: shader-slang/slang
-          issue-number: ${{ github.event.client_payload.pull_request.number }}
+          issue-number: ${{ needs.validate-dispatch.outputs.pr-number }}
           body: |
             ${{
-              steps.regen.conclusion != 'success'
+              needs.regenerate-toc-pr-branch.result != 'success'
               && format('❌ Table of Contents generation failed. Please check the [workflow run](https://github.com/{0}/actions/runs/{1})', github.repository, github.run_id)
-              || (steps.create-pr.conclusion != 'success'
+              || (needs.regenerate-toc-pr-branch.outputs.has-changes != 'true'
+                  && '✅ Table of Contents generation completed; no changes were needed.'
+                  || (steps.create-pr.conclusion != 'success'
                   && format('❌ Failed to create regenerate ToC pull request. Please check the [workflow run](https://github.com/{0}/actions/runs/{1})', github.repository, github.run_id)
-                  || format('🌈 Regenerated Table of Contents, please merge the changes from [this PR]({0})', steps.create-pr.outputs.pull-request-url))
+                  || format('🌈 Regenerated Table of Contents, please merge the changes from [this PR]({0})', steps.create-pr.outputs.pull-request-url)))
             }}
 
       - name: Add reaction
-        if: steps.regen.conclusion == 'success' && steps.create-pr.conclusion == 'success'
+        if: >-
+          needs.regenerate-toc-pr-branch.result == 'success' &&
+          (needs.regenerate-toc-pr-branch.outputs.has-changes != 'true' || steps.create-pr.conclusion == 'success')
         uses: peter-evans/create-or-update-comment@v4
         with:
           token: ${{ secrets.SLANGBOT_PAT }}
           repository: shader-slang/slang
-          comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
+          comment-id: ${{ needs.validate-dispatch.outputs.comment-id }}
           reactions-edit-mode: replace
           reactions: hooray
