@@ -29,6 +29,24 @@ STATUS_BLOCK_START = "<!-- pr-watch-status:start -->"
 STATUS_BLOCK_END = "<!-- pr-watch-status:end -->"
 RESOLVE_SKILL = "slang-pr-resolve-comments"
 PR_CREATE_SKILL = "slang-pr-create"
+POSIX_CKSUM_POLYNOMIAL = 0x04C11DB7
+
+
+def build_posix_cksum_table() -> list[int]:
+    table: list[int] = []
+    for value in range(256):
+        crc = value << 24
+        for _ in range(8):
+            if crc & 0x80000000:
+                crc = (crc << 1) ^ POSIX_CKSUM_POLYNOMIAL
+            else:
+                crc <<= 1
+            crc &= 0xFFFFFFFF
+        table.append(crc)
+    return table
+
+
+POSIX_CKSUM_TABLE = build_posix_cksum_table()
 
 
 class WatchError(Exception):
@@ -310,6 +328,10 @@ class WatchGithub:
             return "/"
         return "$"
 
+    def agent_skill_invocations(self) -> list[str]:
+        prefix = self.skill_prefix_for_agent()
+        return [f"{prefix}{RESOLVE_SKILL}", f"{prefix}{PR_CREATE_SKILL}"]
+
     def resolve_prompt_for_pr_resolve(self, repo: str, pr: str) -> str:
         return f"{self.skill_prefix_for_agent()}{RESOLVE_SKILL} https://github.com/{repo}/pull/{pr}\n"
 
@@ -357,8 +379,7 @@ class WatchGithub:
         self.log(f"using Git: {self.command_path_for_log(self.git_command)}")
         self.log(f"using agent: {self.command_path_for_log(self.agent_command.split()[0])}")
         self.log(f"using tmux: {self.command_path_for_log('tmux')}")
-        self.log(f"using cksum: {self.command_path_for_log('cksum')}")
-        self.log(f"using PR create skill: {self.skill_prefix_for_agent()}{PR_CREATE_SKILL}")
+        self.log(f"using agent skills: {', '.join(self.agent_skill_invocations())}")
         self.log(f"watch state file: {self.watch_state_file}")
         self.log(
             f"watch issue repo: {self.watch_issue_repo}; "
@@ -1056,10 +1077,26 @@ class WatchGithub:
             )
         return checks
 
+    @staticmethod
+    def posix_cksum(data: bytes) -> tuple[int, int]:
+        # Keep signatures compatible with state files written by the previous cksum command.
+        crc = 0
+        for byte in data:
+            index = ((crc >> 24) ^ byte) & 0xFF
+            crc = ((crc << 8) ^ POSIX_CKSUM_TABLE[index]) & 0xFFFFFFFF
+
+        length = len(data)
+        remaining = length
+        while remaining:
+            index = ((crc >> 24) ^ remaining) & 0xFF
+            crc = ((crc << 8) ^ POSIX_CKSUM_TABLE[index]) & 0xFFFFFFFF
+            remaining >>= 8
+
+        return (~crc) & 0xFFFFFFFF, length
+
     def signature_for(self, text: str) -> str:
-        result = self.run_cmd(["cksum"], input_text=text, check=True)
-        fields = result.stdout.split()
-        return f"{fields[0]}:{fields[1]}" if len(fields) >= 2 else result.stdout.strip()
+        checksum, length = self.posix_cksum(text.encode())
+        return f"{checksum}:{length}"
 
     def ci_attention_signature(self, checks: list[dict[str, Any]]) -> str:
         lines = []
@@ -1314,8 +1351,8 @@ class WatchGithub:
         return state
 
     @staticmethod
-    def markdown_cell(value: str) -> str:
-        return value.replace("\r", " ").replace("\n", " ").replace("|", "\\|")
+    def html_table_cell(value: str) -> str:
+        return html.escape(value.replace("\r", " ").replace("\n", " "))
 
     @staticmethod
     def render_markdown_code_block(text: str) -> str:
@@ -1340,10 +1377,12 @@ class WatchGithub:
             return "[no earlier captured lines]\n"
         return "\n".join(lines[:-10]) + "\n"
 
-    def render_status_pane_captures(self, titles: dict[tuple[str, str], str] | None = None) -> str:
+    def render_status_pane_captures(
+        self, items: list[WatchItem], titles: dict[tuple[str, str], str] | None = None
+    ) -> str:
         captured_targets: set[str] = set()
         chunks: list[str] = []
-        for item in self.items:
+        for item in items:
             number = item.pr or item.issue
             label = f"{item.repo}#{number}"
             title: str | None = None
@@ -1376,7 +1415,7 @@ class WatchGithub:
         return "".join(chunks)
 
     def render_status_dashboard_block(self) -> str:
-        rows = []
+        entries: list[tuple[str, str, WatchItem]] = []
         titles: dict[tuple[str, str], str] = {}
         for item in self.items:
             key = self.state_key_for_item(item)
@@ -1389,24 +1428,37 @@ class WatchGithub:
                 item_url = f"https://github.com/{item.repo}/issues/{item.issue}"
                 self.write_status_field_if_absent(key, "phase", "Initalizing agent")
                 self.write_status_field(key, "ci", "N/A")
-            phase = self.markdown_cell(self.read_status_field(key, "phase", "none"))
-            ci = self.markdown_cell(self.read_status_field(key, "ci", "unknown"))
+            phase = self.html_table_cell(self.read_status_field(key, "phase", "none"))
+            ci = self.html_table_cell(self.read_status_field(key, "ci", "unknown"))
             number = item.pr or item.issue
             title = self.issue_or_pr_title(item.repo, number)
             titles[(item.repo, number)] = title
-            title_cell = self.markdown_cell(title)
-            rows.append(f"{label}\t| [{label}]({item_url}) | {phase} | {ci} | {title_cell} |")
+            title_cell = self.html_table_cell(title)
+            escaped_label = html.escape(label)
+            escaped_url = html.escape(item_url, quote=True)
+            row = (
+                f'<tr><td><a href="{escaped_url}">{escaped_label}</a></td>'
+                f"<td>{phase}</td><td>{ci}</td></tr>"
+                f'<tr><td colspan="3">&nbsp;&nbsp;&nbsp;&nbsp;&#9492;&#9472;&gt; '
+                f"{title_cell}</td></tr>"
+            )
+            entries.append((f"{label}\t{row}", row, item))
+        entries.sort(key=lambda entry: entry[0])
         body = [
             STATUS_BLOCK_START,
             "# Agent Watcher Status",
             "",
             f"Last updated: {time.strftime('%m-%d %H:%M %Z')}",
             "",
-            "| Item | Status | CI | Title |",
-            "|---|---|---|---|",
+            "<table>",
+            "<thead>",
+            "<tr><th>PR/issue</th><th>Status</th><th>CI</th></tr>",
+            "</thead>",
+            "<tbody>",
         ]
-        body.extend(row.split("\t", 1)[1] for row in sorted(rows))
-        captures = self.render_status_pane_captures(titles)
+        body.extend(row for _, row, _ in entries)
+        body.extend(["</tbody>", "</table>"])
+        captures = self.render_status_pane_captures([item for _, _, item in entries], titles)
         return "\n".join(body) + "\n" + captures + f"\n{STATUS_BLOCK_END}\n"
 
     @staticmethod
@@ -1692,7 +1744,6 @@ class WatchGithub:
             self.git_command,
             self.agent_command.split()[0],
             "bash",
-            "cksum",
             "tmux",
         ):
             self.need_command(command)
