@@ -67,16 +67,15 @@ flowchart TD
 
     L -- yes --> T0
     L -- no --> N{"Does `issue-N` tmux session exist?"}
-    N -- yes --> O{"Kill existing tmux session?"}
+    N -- yes --> O{"Kill existing tmux session and verify gone?"}
     O -- failed --> Z
     O -- succeeded --> V
     N -- no --> V{"Delete safe issue worktree path if present?"}
     V -- failed --> Z
-    V -- succeeded --> W{"Delete local `issue-N` branch if present?"}
+    V -- succeeded --> W{"`create_issue_worktree` deletes branch and runs `extras/git-worktree-add.sh issue-N`?"}
     W -- failed --> Z
-    W -- succeeded --> X{"Run `extras/git-worktree-add.sh issue-N`?"}
-    X -- failed --> Z
-    X -- succeeded --> Y{"Ensure/start agent and verify live?"}
+    W -- succeeded --> X["Clear cached idle state for `issue-N` agent"]
+    X --> Y{"Ensure/start agent and verify live?"}
     Y -- failed --> Z
     Y -- live --> AA["Append issue row; phase `Initalizing agent`; CI `N/A`"]
     AA --> Z
@@ -123,8 +122,8 @@ flowchart TD
     BC -- no --> BD["Remove PR row from watch state"]
     BC -- yes --> CA{"PR has configured Copilot label?"}
     CA -- yes --> C{"Fetch comments, review comments, and reviews?"}
-    CA -- no --> CB["Set phase `paused`"]
-    CB --> BZ
+    CA -- no --> CB["Mark prompts paused"]
+    CB --> C
     C -- no --> D["Log comment fetch failure"]
     C -- yes --> E{"Seen-id file exists?"}
     E -- no --> F["Create empty seen-id file"]
@@ -145,11 +144,11 @@ flowchart TD
     N -- yes --> P{"Fetch fail/cancel/pending checks?"}
     P -- no --> Q["Set CI to `unknown` and log"]
     P -- yes --> R["Count checks, compute CI signature, write CI status"]
-    R --> S{"Signature differs from stored CI signature?"}
+    R --> U{"No CI state file and `CI_BOOTSTRAP_MODE` is not `trigger`?"}
+    U -- yes --> V["Store signature; mark CI just primed; suppress CI change"]
+    U -- no --> S{"Signature differs from stored CI signature?"}
     S -- no --> T["No CI change"]
-    S -- yes --> U{"No CI state file and `CI_BOOTSTRAP_MODE` is not `trigger`?"}
-    U -- yes --> V["Store signature; mark CI just primed"]
-    U -- no --> W{"Any fail or cancel checks?"}
+    S -- yes --> W{"Any fail or cancel checks?"}
     W -- yes --> X["Mark failing-CI dispatch pending"]
     W -- no --> Y{"Any pending checks?"}
     Y -- yes --> ZA["Mark CI pending change"]
@@ -163,12 +162,15 @@ flowchart TD
     ZA --> ZC
     ZB --> ZC
 
-    ZC -- yes --> ZD["Ensure/start agent and send `slang-pr-resolve-comments`"]
+    ZC -- yes --> ZCA{"Prompts paused?"}
+    ZCA -- yes --> ZCB["Log skipped prompt; leave pending state for retry"]
+    ZCA -- no --> ZD["Ensure/start agent and send `slang-pr-resolve-comments`"]
+    ZCB --> ZP
     ZD --> ZE{"Prompt sent?"}
     ZE -- yes --> ZFA{Is there comment pending}
     ZFA -- yes --> ZFB["Set phase `Addressing comments`"]
     ZFA -- no --> ZFC["Set phase `All comments resolved`"]
-    ZFB --> ZF["store seen IDs and failing-CI signature when applicable"]
+    ZFB --> ZF["Store seen IDs and failing-CI signature when applicable"]
     ZFC --> ZF
     ZE -- no --> ZG["Set phase `dispatch failed`; leave pending state for retry"]
     ZC -- no --> ZH{"CI pending change?"}
@@ -177,12 +179,15 @@ flowchart TD
     ZJ -- yes --> ZK["Store signature; set phase `CI passing`"]
     ZJ -- no --> ZL{"CI just primed?"}
     ZL -- yes --> ZM["Set phase from current CI state"]
-    ZL -- no --> ZN["Remove temporary files"]
-    ZF --> ZN
-    ZG --> ZN
-    ZI --> ZN
-    ZK --> ZN
-    ZM --> ZN
+    ZL -- no --> ZP{"Prompts paused?"}
+    ZF --> ZP
+    ZG --> ZP
+    ZI --> ZP
+    ZK --> ZP
+    ZM --> ZP
+    ZP -- yes --> ZQ["Set phase `paused`"]
+    ZP -- no --> ZN["Remove temporary files"]
+    ZQ --> ZN
 ```
 
 ## Usage
@@ -244,7 +249,8 @@ agent command line; tracked issue processing sends it after the once-per-poll id
 - `WATCH_COPILOT_ISSUES`: set to `false` to disable assigned Copilot issue discovery. Defaults
   to `true`.
 - `COPILOT_LABEL`: label used for issue discovery and PR-row processing. PR-row matching ignores
-  case. Defaults to `Copilot`.
+  case. PR rows without this label still update comment and CI state, but skip agent prompts and
+  report phase `paused`. Defaults to `Copilot`.
 - `ISSUE_LIST_LIMIT`: maximum number of assigned Copilot issues to list per poll. Defaults to
   `100`.
 - `WATCH_ISSUE_REPO`: repository used for assigned issue discovery. Defaults to

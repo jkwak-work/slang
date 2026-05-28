@@ -1311,7 +1311,7 @@ start_discovered_issue() {
     log "failed to start agent for $repo#$issue; will retry from issue discovery"
     return 1
   fi
-  state="$(tmux_state_for_session "$worktree_name")"
+  tmux_state_for_session_into "$worktree_name" state
   if [[ "$state" == "no session" || "$state" == "unknown" ]]; then
     log "agent is not live in $worktree_name after startup (state=$state); will retry from issue discovery"
     return 1
@@ -1830,16 +1830,18 @@ maybe_approve_prompt() {
   fi
 }
 
-tmux_state_for_session() {
+# Use the _into form inside polling paths so idle-screen observations remain in this shell.
+tmux_state_for_session_into() {
   local session="$1"
-  local target text state
+  local out_var="$2"
+  local target text result
 
   if ! tmux_session_exists "$session"; then
-    printf 'no session\n'
+    printf -v "$out_var" '%s' "no session"
     return 0
   fi
 
-  state="unknown"
+  result="unknown"
   while IFS= read -r target; do
     [[ -n "$target" ]] || continue
     text="$(pane_tail "$target" || true)"
@@ -1850,18 +1852,25 @@ tmux_state_for_session() {
     fi
 
     if approval_prompt_present "$text"; then
-      printf 'needs approval\n'
+      printf -v "$out_var" '%s' "needs approval"
       return 0
     fi
 
     if target_screen_is_idle "$target" "$text"; then
-      [[ "$state" == "unknown" ]] && state="idle"
-    elif [[ "$state" == "unknown" ]]; then
-      state="working"
+      [[ "$result" == "unknown" ]] && result="idle"
+    elif [[ "$result" == "unknown" ]]; then
+      result="working"
     fi
   done < <(session_pane_targets "$session")
 
-  printf '%s\n' "$state"
+  printf -v "$out_var" '%s' "$result"
+}
+
+tmux_state_for_session() {
+  local result
+
+  tmux_state_for_session_into "$1" result
+  printf '%s\n' "$result"
 }
 
 markdown_cell() {
@@ -2160,7 +2169,7 @@ process_issue_item() {
     return 1
   fi
 
-  state="$(tmux_state_for_session "$session")"
+  tmux_state_for_session_into "$session" state
   if [[ "$state" == "no session" || "$state" == "unknown" ]]; then
     log "removing stale issue row for $repo#$issue because agent state is $state"
     remove_watch_state_item "$repo" "" "$issue"
@@ -2227,6 +2236,7 @@ process_watch_item() {
   local comment_needs_dispatch=false ci_needs_dispatch=false
   local ci_pending_changed=false ci_passing_changed=false
   local ci_signature_changed=false ci_state_ready=false ci_was_primed=false
+  local pr_allows_dispatch=true
 
   key="$(state_key_for "$repo" "$pr")"
   ensure_status_defaults "$key"
@@ -2245,13 +2255,12 @@ process_watch_item() {
   pr_label_status=0
   pr_has_copilot_label "$repo" "$pr" || pr_label_status=$?
   if [[ "$pr_label_status" -ne 0 ]]; then
+    pr_allows_dispatch=false
     if [[ "$pr_label_status" -eq 2 ]]; then
-      log "failed to fetch PR labels for $repo#$pr; pausing"
+      log "failed to fetch PR labels for $repo#$pr; prompts paused"
     else
-      log "pausing $repo#$pr because it does not have label $COPILOT_LABEL"
+      log "prompts paused for $repo#$pr because it does not have label $COPILOT_LABEL"
     fi
-    set_status_phase "$key" "paused"
-    return 0
   fi
 
   comment_state_file="$STATE_DIR/$key.seen"
@@ -2329,7 +2338,10 @@ process_watch_item() {
   fi
 
   if "$comment_needs_dispatch" || "$ci_needs_dispatch"; then
-    if dispatch_watch_prompt "$repo" "$pr" "$worktree" "$session" "$new_comment_count" "$ci_failure_count"; then
+    if ! "$pr_allows_dispatch"; then
+      log "skipping prompt for $repo#$pr while PR is paused"
+    elif dispatch_watch_prompt \
+      "$repo" "$pr" "$worktree" "$session" "$new_comment_count" "$ci_failure_count"; then
       if "$comment_needs_dispatch"; then
         set_status_phase "$key" "Addressing comments"
       else
@@ -2361,6 +2373,10 @@ process_watch_item() {
     elif "$ci_state_ready"; then
       set_status_phase "$key" "CI passing"
     fi
+  fi
+
+  if ! "$pr_allows_dispatch"; then
+    set_status_phase "$key" "paused"
   fi
 
   rm -f "$events_file" "$new_file" "$checks_file"
