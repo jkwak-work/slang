@@ -1,6 +1,6 @@
-# watch-github.sh
+# watch-github.py
 
-`watch-github.sh` watches GitHub PR comments, reviews, and CI checks for PRs listed in its
+`watch-github.py` watches GitHub PR comments, reviews, and CI checks for PRs listed in its
 internal state file. When a new comment or review appears, or CI starts failing, it starts or
 reuses a tmux session rooted in the PR worktree and sends:
 
@@ -193,7 +193,7 @@ flowchart TD
 ## Usage
 
 ```bash
-extras/watch-github.sh [--agent [claude|codex]] [--once] [--status-issue URL]
+extras/watch-github.py [--agent [claude|codex]] [--once] [--status-issue URL]
 ```
 
 Options:

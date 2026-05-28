@@ -2,10 +2,9 @@
 """
 Watch GitHub PR comments, reviews, CI checks, and Copilot-labeled assigned issues.
 
-This is a Python implementation of extras/watch-github.sh. It intentionally keeps
-the same command-line flags, environment variables, watch-state file format, status
-field files, tmux session naming, and prompt text so it can replace the shell
-watcher without migrating state.
+This watcher intentionally keeps the same command-line flags, environment variables,
+watch-state file format, status field files, tmux session naming, and prompt text
+used by the previous shell watcher so it can run without migrating state.
 """
 
 from __future__ import annotations
