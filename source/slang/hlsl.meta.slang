@@ -6522,7 +6522,8 @@ $}
     [__requiresNVAPI]
     [ForceInline]
     [require(cuda_hlsl, sm_5_0)]
-    [require(spirv, atomic_glsl_halfadd)]
+    [require(spirv, spvAtomicFloat16VectorNV)]
+    [require(spirv, spvAtomicFloat16AddEXT)]
     void InterlockedAddF16(uint byteAddress, half value, out half originalValue)
     {
         __target_switch
@@ -6578,8 +6579,7 @@ $}
     /// maps to `atomicAdd`.
     [__requiresNVAPI]
     [ForceInline]
-    [require(cuda_hlsl, sm_5_0)]
-    [require(spirv, spvAtomicFloat16VectorNV)]
+    [require(cuda_hlsl_spirv, sm_5_0)]
     void InterlockedAddF16Emulated(uint byteAddress, half value, out half originalValue)
     {
         __target_switch
@@ -33762,7 +33762,7 @@ uint packHalf2x16(half2 unpackedValue)
     return packHalf2x16(float2(unpackedValue));
 }
 
-[require(spirv, spvAtomicFloat16VectorNV)]
+[require(spirv)]
 void InterlockedAddF16Emulated(half* dest, half value, out half originalValue)
 {
     let buf = (half2*)(dest);
@@ -33777,7 +33777,7 @@ void InterlockedAddF16Emulated(half* dest, half value, out half originalValue)
     }
 }
 
-[require(spirv, spvAtomicFloat16VectorNV)]
+[require(spirv)]
 void InterlockedAddF16x2(half2* dest, half2 value, out half2 originalValue)
 {
     originalValue = __atomic_add(*dest, value);
