@@ -123,9 +123,19 @@ jobs:
           mkdir -p pr-branch/docs
           cp "$generated_doc" pr-branch/docs/command-line-slangc-reference.md
 
+      - name: Check for generated reference changes
+        id: check-doc
+        if: needs.generate_cmdline_ref.result == 'success'
+        run: |
+          if git -C pr-branch diff --quiet -- docs/command-line-slangc-reference.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure Git commit signing
         id: git-info
-        if: needs.generate_cmdline_ref.result == 'success'
+        if: steps.check-doc.outputs.changed == 'true'
         run: |
           echo "${{ secrets.SLANGBOT_SIGNING_KEY }}" > "${{runner.temp}}"/signing_key
           chmod 600 "${{runner.temp}}"/signing_key
@@ -139,7 +149,7 @@ jobs:
 
       - name: Create Pull Request
         id: create-pr
-        if: needs.generate_cmdline_ref.result == 'success'
+        if: steps.check-doc.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.SLANGBOT_PAT }}
@@ -169,13 +179,17 @@ jobs:
             ${{
               needs.generate_cmdline_ref.result != 'success'
               && format('❌ Command line reference generation failed. Please check the [workflow run](https://github.com/{0}/actions/runs/{1})', github.repository, github.run_id)
-              || (steps.create-pr.conclusion != 'success'
+              || (steps.check-doc.outputs.changed == 'false'
+                  && '✅ Command line reference is already up to date. No PR was created.'
+                  || (steps.create-pr.outputs.pull-request-url == ''
                   && format('❌ Failed to create regenerate command line reference pull request. Please check the [workflow run](https://github.com/{0}/actions/runs/{1})', github.repository, github.run_id)
                   || format('🌈 Regenerated command line reference, please merge the changes from [this PR]({0})', steps.create-pr.outputs.pull-request-url))
+                )
             }}
 
       - name: Add reaction
-        if: needs.generate_cmdline_ref.result == 'success' && steps.create-pr.conclusion == 'success'
+        if: steps.create-pr.outputs.pull-request-url != ''
+        continue-on-error: true
         uses: peter-evans/create-or-update-comment@v4
         with:
           token: ${{ secrets.SLANGBOT_PAT }}
