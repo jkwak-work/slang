@@ -59,6 +59,12 @@ class WatchItem:
         return bool(self.issue)
 
 
+@dataclass
+class PullRequestStatus:
+    state: str
+    is_draft: bool
+
+
 def strip_cr(text: str) -> str:
     return text.replace("\r", "")
 
@@ -484,16 +490,22 @@ class WatchGithub:
         self.write_status_field(key, "date", self.short_status_date())
         self.write_status_field(key, "phase", phase)
 
-    def ci_status_for_counts(self, failure_count: int, pending_count: int) -> str:
+    @staticmethod
+    def ci_status_with_draft(status: str, is_draft: bool) -> str:
+        return f"{status} (draft)" if is_draft else status
+
+    def ci_status_for_counts(self, failure_count: int, pending_count: int, is_draft: bool) -> str:
         if self.watch_ci != "true":
-            return "not watched"
-        if failure_count > 0 and pending_count > 0:
-            return f"{failure_count} failing, {pending_count} pending"
-        if failure_count > 0:
-            return f"{failure_count} failing"
-        if pending_count > 0:
-            return f"{pending_count} pending"
-        return "passing"
+            status = "not watched"
+        elif failure_count > 0 and pending_count > 0:
+            status = f"{failure_count} failing, {pending_count} pending"
+        elif failure_count > 0:
+            status = f"{failure_count} failing"
+        elif pending_count > 0:
+            status = f"{pending_count} pending"
+        else:
+            status = "passing"
+        return self.ci_status_with_draft(status, is_draft)
 
     def parse_watch_state_fields(self, raw: str) -> WatchItem | None:
         line = raw.strip()
@@ -640,13 +652,13 @@ class WatchGithub:
             return None
         return match.group(1), match.group(2)
 
-    def pr_state_for(self, repo: str, pr: str) -> str | None:
+    def pr_status_for(self, repo: str, pr: str) -> PullRequestStatus | None:
         result = self.run_cmd([self.gh_command, "api", f"repos/{repo}/pulls/{pr}"])
         if result.returncode != 0:
             return None
         data = json.loads(result.stdout)
         state = "merged" if data.get("state") == "closed" and data.get("merged") else data.get("state", "")
-        return state.lower() if state else None
+        return PullRequestStatus(state.lower(), bool(data.get("draft"))) if state else None
 
     def pr_label_status(self, repo: str, pr: str) -> int:
         result = self.run_cmd([self.gh_command, "api", f"repos/{repo}/issues/{pr}"])
@@ -1524,13 +1536,15 @@ class WatchGithub:
     def process_watch_item(self, repo: str, pr: str, worktree: str, session: str) -> None:
         key = self.state_key_for(repo, pr)
         self.ensure_status_defaults(key)
-        pr_state = self.pr_state_for(repo, pr)
-        if not pr_state:
+        pr_status = self.pr_status_for(repo, pr)
+        if not pr_status:
             self.log(f"failed to fetch PR state for {repo}#{pr}")
             self.set_status_phase(key, "PR state unknown")
             return
-        if pr_state != "open":
-            self.log(f"removing watch-state item for {repo}#{pr} because PR state is {pr_state}")
+        if pr_status.state != "open":
+            self.log(
+                f"removing watch-state item for {repo}#{pr} because PR state is {pr_status.state}"
+            )
             self.remove_watch_state_item(repo, pr, "")
             return
 
@@ -1579,7 +1593,13 @@ class WatchGithub:
                 ci_failure_count = sum(1 for check in checks if check["bucket"] in {"fail", "cancel"})
                 ci_pending_count = sum(1 for check in checks if check["bucket"] == "pending")
                 current_signature = self.ci_attention_signature(checks)
-                self.write_status_field(key, "ci", self.ci_status_for_counts(ci_failure_count, ci_pending_count))
+                self.write_status_field(
+                    key,
+                    "ci",
+                    self.ci_status_for_counts(
+                        ci_failure_count, ci_pending_count, pr_status.is_draft
+                    ),
+                )
                 previous_signature = ci_state_file.read_text().strip() if ci_state_file.exists() else ""
                 ci_signature_changed = current_signature != previous_signature
                 if not ci_state_file.exists() and self.ci_bootstrap_mode != "trigger":
@@ -1596,10 +1616,14 @@ class WatchGithub:
                         ci_passing_changed = True
                 ci_state_ready = True
             else:
-                self.write_status_field(key, "ci", "unknown")
+                self.write_status_field(
+                    key, "ci", self.ci_status_with_draft("unknown", pr_status.is_draft)
+                )
                 self.log(f"failed to fetch CI checks for {repo}#{pr}")
         else:
-            self.write_status_field(key, "ci", "not watched")
+            self.write_status_field(
+                key, "ci", self.ci_status_with_draft("not watched", pr_status.is_draft)
+            )
 
         if comment_needs_dispatch or ci_needs_dispatch:
             if not pr_allows_dispatch:
