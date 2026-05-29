@@ -864,6 +864,11 @@ class WatchGithub:
         expected = self.issue_worktree_path(issue)
         return worktree == expected and Path(worktree).name == self.issue_worktree_name(issue)
 
+    @staticmethod
+    def retry_remove_writable(function: Any, path: str, _exc_info: Any) -> None:
+        os.chmod(path, 0o700)
+        function(path)
+
     def delete_issue_worktree(self, issue: str, worktree: str) -> bool:
         path = Path(worktree)
         if not path.exists():
@@ -877,8 +882,16 @@ class WatchGithub:
             self.log(f"git worktree remove failed for {worktree}; removing directory directly")
         self.run_cmd([self.git_command, "worktree", "prune"])
         if path.exists():
-            shutil.rmtree(path, ignore_errors=False)
+            try:
+                shutil.rmtree(path, ignore_errors=False, onerror=self.retry_remove_writable)
+            except OSError as exc:
+                self.log(f"failed to remove issue worktree directory {worktree}: {exc}")
+                self.run_cmd([self.git_command, "worktree", "prune"])
+                return False
             self.run_cmd([self.git_command, "worktree", "prune"])
+        if path.exists():
+            self.log(f"issue worktree directory still exists after deletion: {worktree}")
+            return False
         return True
 
     def delete_issue_branch(self, branch: str, worktree_log: Path) -> bool:
@@ -939,6 +952,7 @@ class WatchGithub:
                 self.log(f"tmux session {worktree_name} still exists after kill")
                 return False
         if Path(worktree).exists() and not self.delete_issue_worktree(issue, worktree):
+            self.set_status_phase(key, "cleanup failed")
             return False
         worktree = self.create_issue_worktree(repo, issue)
         if not worktree:
