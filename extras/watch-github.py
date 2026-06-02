@@ -197,15 +197,21 @@ class WatchGithub:
         env: dict[str, str] | None = None,
     ) -> CommandResult:
         allow = {0} if allow is None else allow
-        proc = subprocess.run(
-            args,
-            cwd=str(cwd) if cwd is not None else None,
-            input=input_text,
-            text=True,
-            stdout=stdout,
-            stderr=stderr,
-            env=env,
-        )
+        try:
+            proc = subprocess.run(
+                args,
+                cwd=str(cwd) if cwd is not None else None,
+                input=input_text,
+                text=True,
+                stdout=stdout,
+                stderr=stderr,
+                env=env,
+            )
+        except OSError as exc:
+            err = f"failed to start command: {' '.join(args)}\n{exc}"
+            if check:
+                raise WatchError(err) from exc
+            return CommandResult(127, "", err)
         out = strip_cr(proc.stdout or "")
         err = strip_cr(proc.stderr or "")
         if check and proc.returncode not in allow:
