@@ -2708,6 +2708,12 @@ local insts = {
 			},
 			{ no_diff = { struct_name = "NoDiffAttr" } },
 			{
+				memoryQualifierSet = {
+					struct_name = "MemoryQualifierSetAttr",
+					operands = { { "memoryQualifierBit" } },
+				},
+			},
+			{
 				nonuniform = {
 					struct_name = "NonUniformAttr",
 				},
