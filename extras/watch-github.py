@@ -334,7 +334,7 @@ class WatchGithub:
         elif self.agent_command_name in {"claude", "claude-code"}:
             default_ready = r"Claude|(^|\s)>\s*$"
 
-        default_approval = r"Do you trust the contents of this directory|Do you want to proceed|(^|\s)❯\s+1[.] "
+        default_approval = r"Do you trust the contents of this directory|Do you want to proceed|(^|\s)[❯›]\s+1[.] "
         default_shell = r"^(bash|dash|sh|zsh|fish|cmd|cmd[.]exe|powershell|powershell[.]exe|pwsh|pwsh[.]exe)$"
         self.agent_ready_pattern = self.translate_posix_regex(self.agent_ready_pattern or default_ready)
         self.agent_approval_pattern = self.translate_posix_regex(
