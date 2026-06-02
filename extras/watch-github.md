@@ -26,11 +26,10 @@ an existing `issue-N` tmux session. If one exists, it treats that as failed setu
 the session, then deletes any safe `issue-N` worktree path because it may be leftover or corrupted.
 If no tmux session exists, the same worktree cleanup still runs. Before fresh setup, the watcher
 also removes the reserved local `issue-N` branch so stale branch contents are not reused. Fresh
-issue worktrees must be created through `create_issue_worktree`, which is the boundary that calls
-`extras/git-worktree-add.sh issue-N`. That helper owns issue branch and worktree setup;
-the watcher should not bypass it with direct `git worktree add` calls in the issue setup flow. The
-issue is added to watch state only after the new agent is live. The normal tracked-issue path then
-sends the initial issue prompt once the agent's captured screen is stable.
+issue worktrees are created through `create_issue_worktree`, which validates the reserved branch,
+adds the sibling Git worktree, and initializes submodules through the watcher's configured Git
+command. The issue is added to watch state only after the new agent is live. The normal
+tracked-issue path then sends the initial issue prompt once the agent's captured screen is stable.
 
 For tracked issue rows, the watcher treats the agent as idle when the captured pane screen repeats
 across polling checks. The first idle check for a tmux target during a poll computes and caches that
@@ -72,7 +71,7 @@ flowchart TD
     O -- succeeded --> V
     N -- no --> V{"Delete safe issue worktree path if present?"}
     V -- failed --> Z
-    V -- succeeded --> W{"`create_issue_worktree` deletes branch and runs `extras/git-worktree-add.sh issue-N`?"}
+    V -- succeeded --> W{"`create_issue_worktree` creates branch, worktree, and submodules?"}
     W -- failed --> Z
     W -- succeeded --> X["Clear cached idle state for `issue-N` agent"]
     X --> Y{"Ensure/start agent and verify live?"}

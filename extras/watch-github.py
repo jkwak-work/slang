@@ -10,10 +10,12 @@ used by the previous shell watcher so it can run without migrating state.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import html
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -217,6 +219,33 @@ class WatchGithub:
         if check and proc.returncode not in allow:
             raise WatchError(f"command failed ({proc.returncode}): {' '.join(args)}\n{err}")
         return CommandResult(proc.returncode, out, err)
+
+    @staticmethod
+    def write_command_output(log_file: Any, text: str) -> None:
+        if not text:
+            return
+        log_file.write(text)
+        if not text.endswith("\n"):
+            log_file.write("\n")
+
+    @staticmethod
+    def write_log_line(log_file: Any, message: str) -> None:
+        log_file.write(f"[{time.strftime('%H:%M:%S')}] {message}\n")
+
+    def run_logged_cmd(
+        self,
+        log_file: Any,
+        args: list[str],
+        *,
+        cwd: str | Path | None = None,
+        env: dict[str, str] | None = None,
+    ) -> CommandResult:
+        self.write_log_line(log_file, f"$ {shlex.join(args)}")
+        result = self.run_cmd(args, cwd=cwd, env=env)
+        self.write_command_output(log_file, result.stdout)
+        self.write_command_output(log_file, result.stderr)
+        log_file.flush()
+        return result
 
     def log(self, message: str) -> None:
         self.finish_status_line()
@@ -804,6 +833,17 @@ class WatchGithub:
         git_worktree = self.path_for_git_path_arg(worktree)
         return self.run_cmd([self.git_command, "-C", git_worktree, *args], allow=allow or {0})
 
+    def git_in_worktree_logged(
+        self,
+        log_file: Any,
+        worktree: str,
+        args: list[str],
+        *,
+        env: dict[str, str] | None = None,
+    ) -> CommandResult:
+        git_worktree = self.path_for_git_path_arg(worktree)
+        return self.run_logged_cmd(log_file, [self.git_command, "-C", git_worktree, *args], env=env)
+
     def git_commit_for_ref(self, worktree: str, ref: str) -> bool:
         return self.git_in_worktree(worktree, ["rev-parse", "--verify", f"{ref}^{{commit}}"]).returncode == 0
 
@@ -901,14 +941,18 @@ class WatchGithub:
         return True
 
     def delete_issue_branch(self, branch: str, worktree_log: Path) -> bool:
-        if self.run_cmd([self.git_command, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"]).returncode != 0:
+        env = self.git_noninteractive_env()
+        branch_exists = self.run_cmd(
+            [self.git_command, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], env=env
+        )
+        if branch_exists.returncode != 0:
             return True
         self.log(f"deleting existing issue branch {branch} before rediscovery")
         with worktree_log.open("a") as log_file:
-            log_file.write(f"[{time.strftime('%H:%M:%S')}] Deleting existing issue branch before rediscovery: {branch}\n")
-            subprocess.run([self.git_command, "worktree", "prune"], stdout=log_file, stderr=log_file, text=True)
-            rc = subprocess.run([self.git_command, "branch", "-D", branch], stdout=log_file, stderr=log_file, text=True).returncode
-        if rc != 0:
+            self.write_log_line(log_file, f"Deleting existing issue branch before rediscovery: {branch}")
+            self.run_logged_cmd(log_file, [self.git_command, "worktree", "prune"], env=env)
+            result = self.run_logged_cmd(log_file, [self.git_command, "branch", "-D", branch], env=env)
+        if result.returncode != 0:
             self.log(f"failed to delete existing issue branch {branch}; see {worktree_log}")
             return False
         return True
@@ -918,6 +962,213 @@ class WatchGithub:
             safe = sanitize_name(target)
             for suffix in ("idle-screen", "idle-screen-signature"):
                 (self.state_dir / f"{safe}.{suffix}").unlink(missing_ok=True)
+
+    def git_noninteractive_env(self) -> dict[str, str]:
+        env = dict(os.environ)
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        return env
+
+    def git_path_is_repository(self, path: str, env: dict[str, str]) -> bool:
+        result = self.run_cmd([self.git_command, "-C", path, "rev-parse", "--git-dir"], env=env)
+        return result.returncode == 0
+
+    def git_submodule_paths(self, log_file: Any, worktree: str, env: dict[str, str]) -> list[str] | None:
+        result = self.git_in_worktree_logged(
+            log_file,
+            worktree,
+            ["config", "--file", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
+            env=env,
+        )
+        if result.returncode not in {0, 1}:
+            return None
+        submodules: list[str] = []
+        for line in result.stdout.splitlines():
+            fields = line.split(None, 1)
+            if len(fields) == 2 and fields[1]:
+                submodules.append(fields[1])
+        return submodules
+
+    def top_level_submodule_update_args(
+        self,
+        git_worktree: str,
+        repo_root_git: str,
+        submodule_path: str,
+        env: dict[str, str],
+    ) -> list[str]:
+        args = [self.git_command, "-C", git_worktree, "submodule", "-q", "update"]
+        module_reference_git = f"{repo_root_git.rstrip('/')}/{submodule_path}"
+        if self.git_path_is_repository(module_reference_git, env):
+            args.extend(["--reference", module_reference_git])
+        args.extend(["--", submodule_path])
+        return args
+
+    def run_top_level_submodule_update(
+        self,
+        git_worktree: str,
+        repo_root_git: str,
+        submodule_path: str,
+        env: dict[str, str],
+    ) -> tuple[list[str], CommandResult]:
+        args = self.top_level_submodule_update_args(git_worktree, repo_root_git, submodule_path, env)
+        return args, self.run_cmd(args, env=env)
+
+    def update_top_level_submodules(
+        self,
+        log_file: Any,
+        worktree: str,
+        repo_root_git: str,
+        submodules: list[str],
+        env: dict[str, str],
+    ) -> bool:
+        if not submodules:
+            return True
+        self.write_log_line(log_file, "Updating top-level submodules concurrently...")
+        git_worktree = self.path_for_git_path_arg(worktree)
+        succeeded = True
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(submodules)) as executor:
+            futures = []
+            for submodule_path in submodules:
+                self.write_log_line(log_file, f"Updating: {submodule_path}")
+                futures.append(
+                    executor.submit(
+                        self.run_top_level_submodule_update,
+                        git_worktree,
+                        repo_root_git,
+                        submodule_path,
+                        env,
+                    )
+                )
+                time.sleep(0.2)
+            for future in concurrent.futures.as_completed(futures):
+                args, result = future.result()
+                self.write_log_line(log_file, f"$ {shlex.join(args)}")
+                self.write_command_output(log_file, result.stdout)
+                self.write_command_output(log_file, result.stderr)
+                if result.returncode != 0:
+                    succeeded = False
+        log_file.flush()
+        return succeeded
+
+    def write_submodule_failure_hint(self, log_file: Any, job_count: int) -> None:
+        self.write_log_line(log_file, "Submodule update failed. You may want to manually run:")
+        log_file.write(
+            f'  "{self.git_command}" submodule update --init --recursive --jobs {job_count}\n'
+        )
+
+    def initialize_issue_worktree_submodules(
+        self,
+        log_file: Any,
+        worktree: str,
+        repo_root_git: str,
+        env: dict[str, str],
+    ) -> bool:
+        if not (Path(worktree) / ".gitmodules").exists():
+            self.write_log_line(log_file, "Skipping submodule initialization because .gitmodules is not found.")
+            return True
+
+        self.write_log_line(log_file, "Initializing submodules...")
+        submodules = self.git_submodule_paths(log_file, worktree, env)
+        if submodules is None:
+            return False
+        job_count = len(submodules) or 1
+
+        if submodules:
+            result = self.git_in_worktree_logged(
+                log_file,
+                worktree,
+                ["submodule", "-q", "init", "--", *submodules],
+                env=env,
+            )
+            if result.returncode != 0:
+                self.write_submodule_failure_hint(log_file, job_count)
+                return False
+
+        if not self.update_top_level_submodules(log_file, worktree, repo_root_git, submodules, env):
+            self.write_submodule_failure_hint(log_file, job_count)
+            return False
+
+        self.write_log_line(log_file, "Updating submodules recursively...")
+        result = self.git_in_worktree_logged(
+            log_file,
+            worktree,
+            ["submodule", "-q", "update", "--init", "--recursive", "--jobs", str(job_count)],
+            env=env,
+        )
+        if result.returncode != 0:
+            self.write_submodule_failure_hint(log_file, job_count)
+            return False
+
+        self.write_log_line(log_file, "Updating submodules completed.")
+        return True
+
+    def create_issue_worktree_with_git(self, branch: str, worktree: str, worktree_log: Path) -> bool:
+        env = self.git_noninteractive_env()
+        with worktree_log.open("a") as log_file:
+            repo_root = str(Path.cwd().resolve())
+            repo_root_result = self.run_logged_cmd(
+                log_file, [self.git_command, "rev-parse", "--show-toplevel"], env=env
+            )
+            repo_root_git = repo_root_result.stdout.strip()
+            current_branch = self.run_logged_cmd(
+                log_file, [self.git_command, "branch", "--show-current"], env=env
+            )
+            base_ref = current_branch.stdout.strip()
+            self.write_log_line(log_file, f"Repository: {repo_root}")
+            self.write_log_line(log_file, f"Base ref: {base_ref}")
+            self.write_log_line(log_file, f"Branch: {branch}")
+            self.write_log_line(log_file, f"Worktree: {worktree}")
+
+            if repo_root_result.returncode != 0 or not repo_root_git:
+                self.write_log_line(log_file, "Failed to resolve repository root.")
+                return False
+            if current_branch.returncode != 0 or not base_ref:
+                self.write_log_line(log_file, "Cannot infer a base branch from detached HEAD.")
+                return False
+
+            result = self.run_logged_cmd(
+                log_file, [self.git_command, "check-ref-format", "--branch", branch], env=env
+            )
+            if result.returncode != 0:
+                self.write_log_line(log_file, f"Invalid branch name: {branch}")
+                return False
+            result = self.run_logged_cmd(
+                log_file,
+                [self.git_command, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+                env=env,
+            )
+            if result.returncode == 0:
+                self.write_log_line(log_file, f"Branch already exists: {branch}")
+                return False
+            result = self.run_logged_cmd(
+                log_file,
+                [self.git_command, "rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}"],
+                env=env,
+            )
+            if result.returncode != 0:
+                self.write_log_line(log_file, f"Base ref does not resolve to a commit: {base_ref}")
+                return False
+
+            parent = Path(worktree).parent
+            if not parent.is_dir():
+                self.write_log_line(log_file, f"Destination parent directory does not exist: {parent}")
+                return False
+
+            git_worktree = self.path_for_git_path_arg(worktree)
+            self.write_log_line(log_file, "Pruning stale worktree records...")
+            result = self.run_logged_cmd(log_file, [self.git_command, "worktree", "prune"], env=env)
+            if result.returncode != 0:
+                return False
+
+            self.write_log_line(log_file, "Adding worktree and creating branch...")
+            result = self.run_logged_cmd(
+                log_file,
+                [self.git_command, "worktree", "add", "-q", "-b", branch, git_worktree, base_ref],
+                env=env,
+            )
+            if result.returncode != 0:
+                return False
+
+            return self.initialize_issue_worktree_submodules(log_file, worktree, repo_root_git, env)
 
     def create_issue_worktree(self, repo: str, issue: str) -> str | None:
         worktree_name = self.issue_worktree_name(issue)
@@ -930,18 +1181,8 @@ class WatchGithub:
         if not self.delete_issue_branch(worktree_name, worktree_log):
             return None
         self.log(f"creating issue worktree {worktree_name} for {repo}#{issue}")
-        env = dict(os.environ)
-        env["GIT_EXE"] = self.git_command
-        with worktree_log.open("a") as log_file:
-            rc = subprocess.run(
-                ["extras/git-worktree-add.sh", worktree_name],
-                stdout=log_file,
-                stderr=log_file,
-                text=True,
-                env=env,
-            ).returncode
-        if rc != 0:
-            self.log(f"git-worktree-add failed for {repo}#{issue}; see {worktree_log}")
+        if not self.create_issue_worktree_with_git(worktree_name, worktree, worktree_log):
+            self.log(f"issue worktree creation failed for {repo}#{issue}; see {worktree_log}")
             return None
         return worktree
 
