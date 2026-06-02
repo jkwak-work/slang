@@ -44,6 +44,12 @@ the agent is idle and live, it checks whether the worktree HEAD is already conta
 ref for the target repository default branch. If so, it sends the issue prompt. If the worktree has
 a new commit, it sends `slang-pr-create <origin-repo>`.
 
+For tracked PR rows, the watcher checks the configured tmux session before fetching PR state from
+GitHub. Missing sessions are logged and skipped until the next poll. Existing sessions are only
+polled for GitHub events after their live agent pane has gone idle. If the idle screen is waiting
+for a permission or trust prompt, the watcher sends Enter and waits for the next poll; otherwise it
+sets the phase to `Waiting for next events` before fetching PR, comment, and CI state.
+
 ## Issue State Flow
 
 ```mermaid
@@ -114,9 +120,18 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["Poll a watch-state PR row"] --> B["Ensure status defaults"]
-    B --> BA{"Fetch PR state?"}
+    B --> B0{"tmux session exists?"}
+    B0 -- no --> B1["Log missing session"]
+    B1 --> BZ["Skip until next poll"]
+    B0 -- yes --> B2{"Live agent pane is idle?"}
+    B2 -- no --> BZ
+    B2 -- yes --> B3{"Idle screen is waiting for input?"}
+    B3 -- yes --> B4["Send Enter"]
+    B4 --> BZ
+    B3 -- no --> B5["Set phase `Waiting for next events`"]
+    B5 --> BA{"Fetch PR state?"}
     BA -- no --> BB["Set phase `PR state unknown`"]
-    BB --> BZ["Skip until next poll"]
+    BB --> BZ
     BA -- yes --> BC{"PR state is `open`?"}
     BC -- no --> BD["Remove PR row from watch state"]
     BC -- yes --> CA{"PR has configured Copilot label?"}
@@ -218,8 +233,8 @@ agent command line; tracked issue processing sends it after the once-per-poll id
 
 - `AGENT_COMMAND`: agent command to start. Defaults to `codex`. Use `AGENT_COMMAND=claude` for
   Claude Code.
-- `AGENT_FLAGS`: flags appended when starting the agent. Defaults depend on `AGENT_COMMAND`:
-  Codex uses `--dangerously-bypass-approvals-and-sandbox`; Claude has no default flags.
+- `AGENT_FLAGS`: flags appended when starting the agent. Defaults to empty. Codex permission and
+  trust prompts are handled through `AGENT_APPROVAL_PATTERN`.
 - `AGENT_SKILL_PREFIX`: prefix before agent skills such as `slang-pr-resolve-comments` and
   `slang-pr-create`. Defaults to `$` for Codex and `/` for Claude.
 - `AGENT_WINDOW_NAME`: tmux window name for the agent. Defaults to the command name.

@@ -324,9 +324,6 @@ class WatchGithub:
     def finalize_agent_config(self) -> None:
         first_word = self.agent_command.split()[0] if self.agent_command.split() else ""
         self.agent_command_name = Path(first_word).name or "agent"
-        if not self.agent_flags:
-            if self.agent_command_name == "codex":
-                self.agent_flags = "--dangerously-bypass-approvals-and-sandbox"
 
         default_ready = self.agent_command_name
         if self.agent_command_name == "codex":
@@ -334,7 +331,7 @@ class WatchGithub:
         elif self.agent_command_name in {"claude", "claude-code"}:
             default_ready = r"Claude|(^|\s)>\s*$"
 
-        default_approval = r"Do you trust the contents of this directory|Do you want to proceed|(^|\s)[❯›]\s+1[.] "
+        default_approval = r"Do you trust the contents of this directory|Do you want to proceed|(^|\s)[>❯›]\s+1[.] "
         default_shell = r"^(bash|dash|sh|zsh|fish|cmd|cmd[.]exe|powershell|powershell[.]exe|pwsh|pwsh[.]exe)$"
         self.agent_ready_pattern = self.translate_posix_regex(self.agent_ready_pattern or default_ready)
         self.agent_approval_pattern = self.translate_posix_regex(
@@ -1475,15 +1472,16 @@ class WatchGithub:
         tail_text = "\n".join(text.splitlines()[-self.match_tail_lines :])
         return bool(re.search(self.agent_approval_pattern, tail_text, re.MULTILINE))
 
-    def maybe_approve_prompt(self, target: str, text: str) -> None:
+    def maybe_approve_prompt(self, target: str, text: str) -> bool:
         if not self.approval_prompt_present(text):
-            return
+            return False
         prompt_tail = "\n".join(text.splitlines()[-self.match_tail_lines :])
         signature = self.signature_for(prompt_tail + "\n")
         if self.approved_signatures.get(target) != signature:
             self.run_cmd(["tmux", "send-keys", "-t", target, "Enter"])
             self.approved_signatures[target] = signature
             self.log(f"approved agent prompt in {target}")
+        return True
 
     def wait_for_agent_ready(self, target: str) -> bool:
         for _ in range(self.agent_start_attempts):
@@ -1797,6 +1795,42 @@ class WatchGithub:
         self.log(f"sent prompt for {repo}#{pr} to {target}")
         return True
 
+    def pr_session_ready_for_state_fetch(self, repo: str, pr: str, session: str, key: str) -> bool:
+        if not self.tmux_session_exists(session):
+            self.log(
+                f"tmux session {session} for {repo}#{pr} does not exist; "
+                "skipping PR state fetch until next poll"
+            )
+            return False
+
+        saw_live_agent = False
+        all_live_agents_idle = True
+        approved_waiting_prompt = False
+        for target in self.agent_pane_targets_for_session(session):
+            text = self.pane_tail(target)
+            if not text or not self.target_looks_like_live_agent(target, text):
+                continue
+            saw_live_agent = True
+            if not self.target_screen_is_idle(target, text):
+                all_live_agents_idle = False
+                continue
+            if self.maybe_approve_prompt(target, text):
+                approved_waiting_prompt = True
+
+        if approved_waiting_prompt:
+            return False
+        if not saw_live_agent:
+            self.log(
+                f"tmux session {session} for {repo}#{pr} has no live agent pane; "
+                "skipping PR state fetch until next poll"
+            )
+            return False
+        if not all_live_agents_idle:
+            return False
+
+        self.set_status_phase(key, "Waiting for next events")
+        return True
+
     def process_issue_item(self, repo: str, issue: str, worktree: str, session: str) -> bool:
         key = self.state_key_for_issue(repo, issue)
         self.ensure_status_defaults(key)
@@ -1852,6 +1886,8 @@ class WatchGithub:
     def process_watch_item(self, repo: str, pr: str, worktree: str, session: str) -> None:
         key = self.state_key_for(repo, pr)
         self.ensure_status_defaults(key)
+        if not self.pr_session_ready_for_state_fetch(repo, pr, session, key):
+            return
         pr_status = self.pr_status_for(repo, pr)
         if not pr_status:
             self.log(f"failed to fetch PR state for {repo}#{pr}")
