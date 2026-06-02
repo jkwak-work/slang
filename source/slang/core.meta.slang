@@ -701,7 +701,7 @@ interface IForwardDifferentiable<FType> where __hasDiffTypeInfo(FType)
 {
     __builtin_requirement($( (int)BuiltinRequirementKind::ForwardDerivativeFunc))
     [MaybeDifferentiable]
-    static __associatedfunc FwdDiffFuncType<FType> fwd_diff; // -> fwd_diff 
+    static __associatedfunc FwdDiffFuncType<FType> fwd_diff; // -> fwd_diff
 };
 
 // Core library interfaces:
@@ -718,10 +718,10 @@ __magic_type(BwdDiffFuncInterfaceType)
 [__FunctionInterface]
 interface IBackwardDifferentiable<FType> where __hasDiffTypeInfo(FType)
 {
-    __builtin_requirement($( (int)BuiltinRequirementKind::BwdCallableContextType)) 
+    __builtin_requirement($( (int)BuiltinRequirementKind::BwdCallableContextType))
     associatedtype BwdCallable : IBwdCallable<FType>; // -> intermediate_context_type
 
-    __builtin_requirement($( (int)BuiltinRequirementKind::MinimalContextType)) 
+    __builtin_requirement($( (int)BuiltinRequirementKind::MinimalContextType))
     associatedtype MinimalContext; // -> minimal_context_type
 
     __builtin_requirement($( (int)BuiltinRequirementKind::BwdApplyFunc))
@@ -1322,7 +1322,7 @@ $}
         {
             return a + b;
         }
-        
+
 ${
         break;
     }
@@ -2455,7 +2455,7 @@ extension matrix<T,N,M,L> : IFloat
     [__unsafeForceInlineEarly]
     __implicit_conversion($(kConversionCost_ScalarToMatrix))
     __init(float v) { this = matrix<T,N,M>(T(v)); }
-    
+
     /// Initialize a matrix where all elements have the same scalar `value`.
     [OverloadRank(-1)]
     [Differentiable]
@@ -4447,49 +4447,6 @@ attribute_syntax [NumThreads(x: int, y: int = 1, z: int = 1)]   : NumThreadsAttr
 /// @param numLanes The wave size this shader entrypoint is compatible with. Must be one of 4, 8, 16, 32, 64, 128.
 __attributeTarget(FuncDecl)
 attribute_syntax [WaveSize(numLanes: int)]   : WaveSizeAttribute;
-
-// Work Graph Node Shader attributes
-
-/// Specifies the launch mode for a work-graph node shader.
-/// @param mode One of "broadcasting", "thread", or "coalescing".
-__attributeTarget(FuncDecl)
-attribute_syntax [NodeLaunch(mode: String)] : NodeLaunchAttribute;
-
-/// Specifies the maximum dispatch grid for a broadcasting node.
-__attributeTarget(FuncDecl)
-attribute_syntax [NodeMaxDispatchGrid(x: int, y: int, z: int)] : NodeMaxDispatchGridAttribute;
-
-/// Specifies a fixed dispatch grid for a broadcasting node.
-__attributeTarget(FuncDecl)
-attribute_syntax [NodeDispatchGrid(x: int, y: int, z: int)] : NodeDispatchGridAttribute;
-
-/// Maximum number of output records for a node output parameter, or maximum input records
-/// for a coalescing node input parameter.
-__attributeTarget(FuncDecl)
-__attributeTarget(ParamDecl)
-attribute_syntax [MaxRecords(count: int)] : MaxRecordsAttribute;
-
-/// Overrides the node identifier (name and optional array index) used in the work graph.
-/// The second argument (array index) is optional and defaults to 0.
-__attributeTarget(FuncDecl)
-__attributeTarget(ParamDecl)
-attribute_syntax [NodeID(name: String, arrayIndex: int = 0)] : NodeIDAttribute;
-
-/// Marks this node shader as a program entry point in the work graph.
-__attributeTarget(FuncDecl)
-attribute_syntax [NodeIsProgramEntry] : NodeIsProgramEntryAttribute;
-
-/// Specifies the number of nodes in a node output array.
-__attributeTarget(ParamDecl)
-attribute_syntax [NodeArraySize(count: int)] : NodeArraySizeAttribute;
-
-/// Allows a node output array to contain unresolved (sparse) entries.
-__attributeTarget(ParamDecl)
-attribute_syntax [AllowSparseNodes] : AllowSparseNodesAttribute;
-
-//@hidden:
-__attributeTarget(StructDecl)
-attribute_syntax [__workGraphRecordType] : WorkGraphRecordTypeAttribute;
 
 //@hidden:
 __attributeTarget(VarDeclBase)
