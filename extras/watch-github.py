@@ -83,6 +83,7 @@ class WatchItem:
 class PullRequestStatus:
     state: str
     is_draft: bool
+    review_decision: str
 
 
 def strip_cr(text: str) -> str:
@@ -157,6 +158,7 @@ class WatchGithub:
         self.watch_issue_repo = os.environ.get("WATCH_ISSUE_REPO", "shader-slang/slang")
         self.pr_base_repo = os.environ.get("PR_BASE_REPO", "")
         self.comment_page_size = os.environ.get("COMMENT_PAGE_SIZE", "100")
+        self.lgtm_pattern = os.environ.get("LGTM_PATTERN", "")
         self.capture_lines = int(os.environ.get("CAPTURE_LINES", "250"))
         self.match_tail_lines = int(os.environ.get("MATCH_TAIL_LINES", "50"))
         self.gh_command = os.environ.get("GH_COMMAND", default_host_command("gh"))
@@ -354,6 +356,10 @@ class WatchGithub:
             r"(^|\n)\s*(?:■\s*)?exceeded retry limit, last status: "
             r"(?:403 Forbidden|429 Too Many Requests)\b[^\n]*"
         )
+        default_lgtm = (
+            r"(^|[^0-9A-Za-z])(lgtm|looks good to me|approved|ship it)"
+            r"([^0-9A-Za-z]|$)"
+        )
         default_shell = r"^(bash|dash|sh|zsh|fish|cmd|cmd[.]exe|powershell|powershell[.]exe|pwsh|pwsh[.]exe)$"
         self.agent_ready_pattern = self.translate_posix_regex(self.agent_ready_pattern or default_ready)
         self.agent_approval_pattern = self.translate_posix_regex(
@@ -362,6 +368,7 @@ class WatchGithub:
         self.agent_recoverable_error_pattern = self.translate_posix_regex(
             self.agent_recoverable_error_pattern or default_recoverable_error
         )
+        self.lgtm_pattern = self.translate_posix_regex(self.lgtm_pattern or default_lgtm)
         self.agent_shell_command_pattern = self.translate_posix_regex(
             self.agent_shell_command_pattern or default_shell
         )
@@ -739,7 +746,24 @@ class WatchGithub:
             return None
         data = json.loads(result.stdout)
         state = "merged" if data.get("state") == "closed" and data.get("merged") else data.get("state", "")
-        return PullRequestStatus(state.lower(), bool(data.get("draft"))) if state else None
+        review_decision = ""
+        review_result = self.run_cmd(
+            [
+                self.gh_command,
+                "pr",
+                "view",
+                pr,
+                "--repo",
+                repo,
+                "--json",
+                "reviewDecision",
+                "-q",
+                ".reviewDecision",
+            ]
+        )
+        if review_result.returncode == 0:
+            review_decision = review_result.stdout.strip().lower()
+        return PullRequestStatus(state.lower(), bool(data.get("draft")), review_decision) if state else None
 
     def pr_label_status(self, repo: str, pr: str) -> int:
         result = self.run_cmd([self.gh_command, "api", f"repos/{repo}/issues/{pr}"])
@@ -1401,6 +1425,12 @@ class WatchGithub:
         seen = set(state_file.read_text().splitlines()) if state_file.exists() else set()
         return [event for event in events if str(event.get("id", "")) not in seen]
 
+    def latest_event_is_lgtm(self, events: list[dict[str, Any]]) -> bool:
+        if not events or not self.lgtm_pattern:
+            return False
+        body = str(events[-1].get("body", ""))
+        return bool(re.search(self.lgtm_pattern, body, re.IGNORECASE | re.MULTILINE))
+
     def tmux_session_exists(self, session: str) -> bool:
         return self.run_cmd(["tmux", "has-session", "-t", session]).returncode == 0
 
@@ -1659,6 +1689,8 @@ class WatchGithub:
             return "🔴"
         if phase in {"paused"}:
             return "⏸️"
+        if phase in {"approved", "lgtm"}:
+            return "🟢"
         if "pending" in phase or "discovered" in phase:
             return "🟡"
         if any(
@@ -2046,10 +2078,12 @@ class WatchGithub:
         ci_passing_changed = False
         ci_state_ready = False
         ci_was_primed = False
+        latest_event_is_lgtm = False
 
         events = self.fetch_events(repo, pr)
         new_events: list[dict[str, Any]] = []
         if events is not None:
+            latest_event_is_lgtm = self.latest_event_is_lgtm(events)
             if not comment_state_file.exists():
                 comment_state_file.write_text("")
                 if self.bootstrap_mode != "trigger":
@@ -2130,6 +2164,10 @@ class WatchGithub:
                 self.set_status_phase(key, "CI pending")
             elif ci_state_ready:
                 self.set_status_phase(key, "CI passing")
+        elif pr_status.review_decision == "approved":
+            self.set_status_phase(key, "Approved")
+        elif latest_event_is_lgtm:
+            self.set_status_phase(key, "LGTM")
 
         if not pr_allows_dispatch:
             self.set_status_phase(key, "paused")

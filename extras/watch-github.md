@@ -203,12 +203,18 @@ flowchart TD
     ZJ -- yes --> ZK["Store signature; set phase `CI passing`"]
     ZJ -- no --> ZL{"CI just primed?"}
     ZL -- yes --> ZM["Set phase from current CI state"]
-    ZL -- no --> ZP{"Prompts paused?"}
+    ZL -- no --> ZO{"PR review decision is `APPROVED`?"}
+    ZO -- yes --> ZR0["Set phase `Approved`"]
+    ZO -- no --> ZR{"Latest non-agent comment/review is LGTM?"}
+    ZR -- yes --> ZS["Set phase `LGTM`"]
+    ZR -- no --> ZP{"Prompts paused?"}
     ZF --> ZP
     ZG --> ZP
     ZI --> ZP
     ZK --> ZP
     ZM --> ZP
+    ZR0 --> ZP
+    ZS --> ZP
     ZP -- yes --> ZQ["Set phase `paused`"]
     ZP -- no --> ZN["Remove temporary files"]
     ZQ --> ZN
@@ -294,6 +300,11 @@ agent command line; tracked issue processing sends it after the once-per-poll id
 - `PR_BASE_REPO`: repository passed to `slang-pr-create` for issue PR creation. If unset, the
   watcher parses the GitHub `owner/repo` value from the `origin` remote URL.
 - `COMMENT_PAGE_SIZE`: GitHub API page size for comment and review fetches. Defaults to `100`.
+- `LGTM_PATTERN`: extended regex used to detect that the latest fetched non-agent comment or
+  review is a looks-good-to-me signal. Defaults to matching `LGTM`, `Looks good to me`,
+  `Approved`, or `Ship it`. If any later non-agent comment or review exists, the phase is not
+  shown as `LGTM`. Formal GitHub review decision `APPROVED` is shown as phase `Approved`
+  independently of this pattern.
 - `CAPTURE_LINES`: tmux pane capture depth used for state detection and status-issue screen
   captures. Defaults to `250`.
 - `MATCH_TAIL_LINES`: number of captured tail lines scanned for approval and trust prompts.
