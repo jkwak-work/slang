@@ -17,6 +17,9 @@
 namespace Slang
 {
 
+static constexpr char kNodeLaunchModeBroadcasting[] = "broadcasting";
+static constexpr char kNodeLaunchModeThread[] = "thread";
+
 // Direction of a semantic value (input from previous stage, or output to next stage)
 enum class SemanticDirection
 {
@@ -1662,7 +1665,7 @@ void validateEntryPoint(EntryPoint* entryPoint, DiagnosticSink* sink)
         if (stage != Stage::Node)
             return false;
         auto launchAttr = entryPointFuncDecl->findModifier<NodeLaunchAttribute>();
-        return launchAttr && launchAttr->mode == "thread";
+        return launchAttr && launchAttr->mode == kNodeLaunchModeThread;
     };
 
     if ((stage == Stage::Compute || stage == Stage::Mesh || stage == Stage::Amplification ||
@@ -1749,7 +1752,8 @@ void validateEntryPoint(EntryPoint* entryPoint, DiagnosticSink* sink)
                     Diagnostics::ConflictingNodeGridAttributes{.decl = entryPointFuncDecl});
             }
             auto launchAttr = entryPointFuncDecl->findModifier<NodeLaunchAttribute>();
-            if ((hasMaxGrid || hasFixedGrid) && launchAttr && launchAttr->mode != "broadcasting")
+            if ((hasMaxGrid || hasFixedGrid) && launchAttr &&
+                launchAttr->mode != kNodeLaunchModeBroadcasting)
             {
                 sink->diagnose(
                     Diagnostics::NodeGridAttributeRequiresBroadcasting{.decl = entryPointFuncDecl});
