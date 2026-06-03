@@ -55,7 +55,7 @@ for a permission or trust prompt, the watcher sends Enter, sets the phase to
 `Advancing agent`, and waits for the next poll. If the idle screen contains a recoverable agent
 error, such as a Codex terminal retry-limit failure, the watcher sets the phase to
 `Recovering agent`, sends the recovery prompt, and waits for the next poll. Otherwise it sets the
-phase to `Waiting for next events` before fetching PR, comment, and CI state.
+phase to `Waiting for LGTM` before fetching PR, comment, and CI state.
 
 ## Issue State Flow
 
@@ -138,7 +138,7 @@ flowchart TD
     B3 -- no --> B6{"Idle screen has recoverable agent error?"}
     B6 -- yes --> B7["Set phase `Recovering agent`; send recovery prompt"]
     B7 --> BZ
-    B6 -- no --> B5["Set phase `Waiting for next events`"]
+    B6 -- no --> B5["Set phase `Waiting for LGTM`"]
     B5 --> BA{"Fetch PR state?"}
     BA -- no --> BB["Set phase `PR state unknown`"]
     BB --> BZ

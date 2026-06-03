@@ -1990,7 +1990,7 @@ class WatchGithub:
             self.request_active_poll()
             return False
 
-        self.set_status_phase(key, "Waiting for next events")
+        self.set_status_phase(key, "Waiting for LGTM")
         return True
 
     def process_issue_item(self, repo: str, issue: str, worktree: str, session: str) -> bool:
