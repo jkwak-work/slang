@@ -230,7 +230,9 @@ Options:
   block also appends their captured screens at the bottom as folded `details` sections. Each pane
   shows the last 10 captured lines after the folded section; the expanded body contains earlier
   captured lines so the visible tail is not duplicated. The combined capture is limited by
-  `CAPTURE_LINES`.
+  `CAPTURE_LINES`. The `Phase` and `CI` cells include scan-friendly status icons: 🟢 ready or
+  passing, 🔵 active work, 🟡 pending, 🔴 failure or unknown, ⏸️ paused or not watched, and ⚪
+  not applicable.
 
 ## Agent Configuration
 

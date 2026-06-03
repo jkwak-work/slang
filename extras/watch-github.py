@@ -1649,6 +1649,51 @@ class WatchGithub:
         return html.escape(value.replace("\r", " ").replace("\n", " "))
 
     @staticmethod
+    def status_value_with_icon(icon: str, value: str) -> str:
+        return f"{icon} {value}" if icon else value
+
+    @staticmethod
+    def phase_status_icon(phase: str) -> str:
+        phase = phase.lower()
+        if any(word in phase for word in ("failed", "failing", "unknown", "cleanup")):
+            return "🔴"
+        if phase in {"paused"}:
+            return "⏸️"
+        if "pending" in phase or "discovered" in phase:
+            return "🟡"
+        if any(
+            word in phase
+            for word in (
+                "addressing",
+                "advancing",
+                "recovering",
+                "prompt",
+                "create pr",
+                "initalizing",
+                "initializing",
+            )
+        ):
+            return "🔵"
+        if "waiting" in phase or "passing" in phase or "resolved" in phase:
+            return "🟢"
+        return "⚪"
+
+    @staticmethod
+    def ci_status_icon(ci: str) -> str:
+        ci = ci.lower()
+        if "failing" in ci or "cancel" in ci:
+            return "🔴"
+        if "unknown" in ci:
+            return "🔴"
+        if "pending" in ci:
+            return "🟡"
+        if "passing" in ci:
+            return "🟢"
+        if "not watched" in ci:
+            return "⏸️"
+        return "⚪"
+
+    @staticmethod
     def render_markdown_code_block(text: str) -> str:
         fence = "```"
         while fence in text:
@@ -1722,8 +1767,14 @@ class WatchGithub:
                 item_url = f"https://github.com/{item.repo}/issues/{item.issue}"
                 self.write_status_field_if_absent(key, "phase", "Initalizing agent")
                 self.write_status_field(key, "ci", "N/A")
-            phase = self.html_table_cell(self.read_status_field(key, "phase", "none"))
-            ci = self.html_table_cell(self.read_status_field(key, "ci", "unknown"))
+            phase_value = self.read_status_field(key, "phase", "none")
+            ci_value = self.read_status_field(key, "ci", "unknown")
+            phase = self.html_table_cell(
+                self.status_value_with_icon(self.phase_status_icon(phase_value), phase_value)
+            )
+            ci = self.html_table_cell(
+                self.status_value_with_icon(self.ci_status_icon(ci_value), ci_value)
+            )
             number = item.pr or item.issue
             title = self.issue_or_pr_title(item.repo, number)
             titles[(item.repo, number)] = title
