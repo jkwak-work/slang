@@ -243,25 +243,29 @@ Options:
 
 ## Agent Configuration
 
-The watcher runs an interactive agent CLI inside tmux. The `--agent` command-line option selects
-the agent for a run. Supported values are `codex` and `claude`; `AGENT_COMMAND` provides the same
-value through the environment. New tmux sessions and agent windows start with the agent launch
-command as the tmux command itself, so a successful setup must leave a live agent process in the
-pane. The watcher sends the issue prompt after readiness detection instead of passing it on the
-agent command line; tracked issue processing sends it after the once-per-poll idle check passes.
+The watcher runs interactive agent CLIs inside tmux. Existing tmux sessions may contain either
+Codex or Claude panes; the watcher detects the live agent per pane and uses that pane's skill
+prefix for dispatched skill prompts. The `--agent` command-line option only selects which agent to
+launch when a new agent pane must be spawned. Supported values are `codex` and `claude`;
+`AGENT_COMMAND` provides the same value through the environment. New tmux sessions and agent
+windows start with the agent launch command as the tmux command itself, so a successful setup must
+leave a live agent process in the pane. The watcher sends the issue prompt after readiness
+detection instead of passing it on the agent command line; tracked issue processing sends it after
+the once-per-poll idle check passes.
 
-- `AGENT_COMMAND`: agent command to start. Defaults to `codex`. Use `AGENT_COMMAND=claude` for
-  Claude Code.
+- `AGENT_COMMAND`: agent command to start when spawning a new pane. Defaults to `codex`. Use
+  `AGENT_COMMAND=claude` for Claude Code.
 - `AGENT_FLAGS`: flags appended when starting the agent. Defaults to empty. Codex permission and
   trust prompts are handled through `AGENT_APPROVAL_PATTERN`.
 - `AGENT_SKILL_PREFIX`: prefix before agent skills such as `slang-pr-resolve-comments` and
   `slang-pr-create`. Defaults to `$` for Codex and `/` for Claude.
-- `AGENT_WINDOW_NAME`: tmux window name for the agent. Defaults to the command name.
+- `AGENT_WINDOW_NAME`: tmux window name to use when spawning a new agent pane. Defaults to the
+  command name. Existing live agent panes can use other window names.
 - `AGENT_SESSION_PREFIX`: prefix for generated PR tmux session names. Defaults to
   `AGENT_WINDOW_NAME`.
-- `AGENT_READY_PATTERN`: extended regex used to detect that the agent has started when the tmux
-  pane's current command is a non-shell process. A pane is also treated as live when its current
-  command matches the selected `AGENT_COMMAND`.
+- `AGENT_READY_PATTERN`: extended regex used to detect that a newly spawned agent has started.
+  Existing panes are detected independently from their foreground command plus known Codex or
+  Claude screen signatures.
 - `AGENT_APPROVAL_PATTERN`: extended regex used to detect approval and trust prompts. When this
   matches in a live agent pane, the watcher sends Enter.
 - `AGENT_RECOVERABLE_ERROR_PATTERN`: extended regex used to detect terminal agent errors that can

@@ -349,7 +349,7 @@ class WatchGithub:
         if self.agent_command_name == "codex":
             default_ready = r"Codex|gpt-[0-9]|(^|\s)[›❯]\s*$"
         elif self.agent_command_name in {"claude", "claude-code"}:
-            default_ready = r"Claude|(^|\s)[>❯]\s*(?:Try|$)"
+            default_ready = r"Claude Code|(^|\s)[>❯]\s*(?:Try|$)"
 
         default_approval = r"Do you trust the contents of this directory|Do you want to proceed|(^|\s)[>❯›]\s+1[.] "
         default_recoverable_error = (
@@ -386,18 +386,31 @@ class WatchGithub:
     def skill_prefix_for_agent(self) -> str:
         if self.agent_skill_prefix:
             return self.agent_skill_prefix
-        if self.agent_command_name == "codex":
+        if self.selected_agent_kind() == "codex":
             return "$"
-        if self.agent_command_name in {"claude", "claude-code"}:
+        if self.selected_agent_kind() == "claude":
             return "/"
         return "$"
+
+    def skill_prefix_for_agent_kind(self, agent_kind: str) -> str:
+        if self.agent_skill_prefix:
+            return self.agent_skill_prefix
+        if self.normalized_agent_kind(agent_kind) == "claude":
+            return "/"
+        return "$"
+
+    def skill_prefix_for_target(self, target: str, text: str | None = None) -> str:
+        text = self.pane_tail(target) if text is None else text
+        agent_kind = self.agent_kind_for_target(target, text)
+        return self.skill_prefix_for_agent_kind(agent_kind or self.selected_agent_kind())
 
     def agent_skill_invocations(self) -> list[str]:
         prefix = self.skill_prefix_for_agent()
         return [f"{prefix}{RESOLVE_SKILL}", f"{prefix}{PR_CREATE_SKILL}"]
 
-    def resolve_prompt_for_pr_resolve(self, repo: str, pr: str) -> str:
-        return f"{self.skill_prefix_for_agent()}{RESOLVE_SKILL} --single-pass https://github.com/{repo}/pull/{pr}\n"
+    def resolve_prompt_for_pr_resolve(self, repo: str, pr: str, target: str = "", text: str | None = None) -> str:
+        prefix = self.skill_prefix_for_target(target, text) if target else self.skill_prefix_for_agent()
+        return f"{prefix}{RESOLVE_SKILL} --single-pass https://github.com/{repo}/pull/{pr}\n"
 
     def resolve_prompt_for_issue(self, repo: str, issue: str) -> str:
         return (
@@ -406,8 +419,9 @@ class WatchGithub:
             "focused validation. Commit when the implementation is ready for the review.\n"
         )
 
-    def resolve_prompt_for_pr_create(self, pr_repo: str) -> str:
-        return f"{self.skill_prefix_for_agent()}{PR_CREATE_SKILL} {pr_repo}\n"
+    def resolve_prompt_for_pr_create(self, pr_repo: str, target: str = "", text: str | None = None) -> str:
+        prefix = self.skill_prefix_for_target(target, text) if target else self.skill_prefix_for_agent()
+        return f"{prefix}{PR_CREATE_SKILL} {pr_repo}\n"
 
     def recover_prompt_for_agent(self) -> str:
         return self.agent_recovery_prompt.rstrip("\n") + "\n"
@@ -1446,7 +1460,7 @@ class WatchGithub:
     def current_path_for_session(self, session: str) -> str | None:
         if not self.tmux_session_exists(session):
             return None
-        target = self.target_for_session(session)
+        target = self.live_agent_target_for_session(session) or self.target_for_session(session)
         result = self.run_cmd(["tmux", "display-message", "-p", "-t", target, "#{pane_current_path}"])
         path = result.stdout.strip()
         return path if path and Path(path).is_dir() else None
@@ -1465,12 +1479,17 @@ class WatchGithub:
         command_name = Path(command_name).name.lower()
         return command_name.removesuffix(".exe")
 
-    def target_has_agent_process(self, target: str) -> bool:
-        command_name = self.normalized_command_name(self.current_command_for_target(target))
-        agent_name = self.normalized_command_name(self.agent_command_name)
-        if command_name == agent_name:
-            return True
-        return {command_name, agent_name} == {"claude", "claude-code"}
+    @staticmethod
+    def normalized_agent_kind(agent_name: str) -> str:
+        agent_name = WatchGithub.normalized_command_name(agent_name)
+        if agent_name in {"claude", "claude-code"}:
+            return "claude"
+        if agent_name == "codex":
+            return "codex"
+        return agent_name
+
+    def selected_agent_kind(self) -> str:
+        return self.normalized_agent_kind(self.agent_command_name)
 
     def target_has_non_shell_process(self, target: str) -> bool:
         command_name = self.current_command_for_target(target)
@@ -1491,12 +1510,16 @@ class WatchGithub:
     def agent_pane_targets_for_session(self, session: str) -> list[str]:
         if not self.tmux_session_exists(session):
             return []
-        if self.tmux_window_exists(session, self.agent_window_name):
-            result = self.run_cmd(
-                ["tmux", "list-panes", "-t", f"{session}:{self.agent_window_name}", "-F", "#{session_name}:#{window_index}.#{pane_index}"]
-            )
-            return [line for line in result.stdout.splitlines() if line]
-        return [self.target_for_session(session)]
+        targets: list[str] = []
+        for target in self.session_pane_targets(session):
+            text = self.pane_tail(target)
+            if text and self.target_looks_like_live_agent(target, text):
+                targets.append(target)
+        return targets
+
+    def live_agent_target_for_session(self, session: str) -> str | None:
+        live_targets = self.agent_pane_targets_for_session(session)
+        return live_targets[0] if live_targets else None
 
     def pane_tail(self, target: str) -> str:
         result = self.run_cmd(["tmux", "capture-pane", "-p", "-J", "-S", f"-{self.capture_lines}", "-t", target])
@@ -1533,9 +1556,37 @@ class WatchGithub:
     def pane_looks_like_agent(self, text: str) -> bool:
         return bool(re.search(self.agent_ready_pattern, text, re.MULTILINE))
 
+    @staticmethod
+    def tail_text(text: str, line_count: int) -> str:
+        return "\n".join(text.splitlines()[-line_count:])
+
+    def agent_kind_for_target(self, target: str, text: str) -> str:
+        command_name = self.current_command_for_target(target)
+        command_kind = self.normalized_agent_kind(command_name)
+        if command_kind in {"claude", "codex"}:
+            return command_kind
+        if not command_name or re.search(self.agent_shell_command_pattern, command_name):
+            return ""
+
+        tail_text = self.tail_text(text, self.match_tail_lines)
+        if re.search(r"(^|\n)\s*›", tail_text) or re.search(r"gpt-[0-9]", tail_text, re.I):
+            return "codex"
+        if re.search(r"(^|\n)\s*❯", tail_text) or "Esc to cancel · Tab to amend" in tail_text:
+            return "claude"
+        if re.search(r"Codex", tail_text):
+            return "codex"
+        if re.search(r"Claude Code", tail_text):
+            return "claude"
+        if self.pane_looks_like_agent(text):
+            return self.selected_agent_kind()
+        return ""
+
+    def target_looks_like_selected_agent(self, target: str, text: str) -> bool:
+        return self.agent_kind_for_target(target, text) == self.selected_agent_kind()
+
     def target_looks_like_live_agent(self, target: str, text: str) -> bool:
-        return self.target_has_agent_process(target) or (
-            self.target_has_non_shell_process(target) and self.pane_looks_like_agent(text)
+        return bool(self.agent_kind_for_target(target, text)) or (
+            self.target_has_non_shell_process(target) and self.approval_prompt_present(text)
         )
 
     def approval_prompt_present(self, text: str) -> bool:
@@ -1567,7 +1618,7 @@ class WatchGithub:
             time.sleep(self.agent_start_wait_seconds)
             text = self.pane_tail(target)
             self.maybe_approve_prompt(target, text)
-            if self.target_looks_like_live_agent(target, text):
+            if self.target_looks_like_selected_agent(target, text):
                 time.sleep(self.agent_start_wait_seconds)
                 return True
         return False
@@ -1612,9 +1663,8 @@ class WatchGithub:
             return target
 
         if not self.tmux_window_exists(session, self.agent_window_name):
-            target = self.target_for_session(session)
-            text = self.pane_tail(target)
-            if not self.target_looks_like_live_agent(target, text):
+            target = self.live_agent_target_for_session(session)
+            if not target:
                 self.log(f"session {session} exists; creating {self.agent_window_name} window in {worktree}")
                 rc = self.run_cmd(
                     [
@@ -1639,8 +1689,10 @@ class WatchGithub:
                     self.log(f"agent did not become ready in {target}")
                     sys.stderr.write(self.pane_tail(target))
                     return None
+            else:
+                return target
 
-        target = self.target_for_session(session)
+        target = self.live_agent_target_for_session(session) or self.target_for_session(session)
         text = self.pane_tail(target)
         if not self.target_looks_like_live_agent(target, text):
             if not self.start_agent_in_pane(target, worktree):
@@ -1932,7 +1984,8 @@ class WatchGithub:
         target = self.ensure_agent_target(session, worktree)
         if not target:
             return False
-        if not self.send_prompt_to_target(target, self.resolve_prompt_for_pr_resolve(repo, pr)):
+        text = self.pane_tail(target)
+        if not self.send_prompt_to_target(target, self.resolve_prompt_for_pr_resolve(repo, pr, target, text)):
             self.request_action_poll()
             return False
         self.request_action_poll()
@@ -2029,7 +2082,7 @@ class WatchGithub:
         if state != "idle":
             self.request_active_poll()
             return True
-        target = self.target_for_session(session)
+        target = self.live_agent_target_for_session(session) or self.target_for_session(session)
         text = self.pane_tail(target)
         if not self.target_looks_like_live_agent(target, text):
             self.log(f"removing stale issue row for {repo}#{issue} because agent is not live in {target}")
@@ -2054,7 +2107,9 @@ class WatchGithub:
             self.set_status_phase(key, "head check failed")
             self.log(f"could not determine whether {worktree} HEAD is already in the default branch history")
             return True
-        if self.send_prompt_to_target(target, self.resolve_prompt_for_pr_create(pr_base_repo)):
+        if self.send_prompt_to_target(
+            target, self.resolve_prompt_for_pr_create(pr_base_repo, target, text)
+        ):
             self.set_status_phase(key, "create PR")
             self.request_action_poll()
             self.log(f"sent PR create prompt for issue {repo}#{issue} to {target}")
