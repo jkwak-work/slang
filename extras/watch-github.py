@@ -2203,7 +2203,11 @@ class WatchGithub:
             key = self.state_key_for_item(item)
             for target in self.session_pane_targets(item.session):
                 text = self.pane_tail(target)
-                if text and self.maybe_approve_prompt(target, text):
+                if (
+                    text
+                    and self.target_looks_like_live_agent(target, text)
+                    and self.maybe_approve_prompt(target, text)
+                ):
                     self.set_status_phase(key, "Advancing agent")
                     self.request_action_poll()
 

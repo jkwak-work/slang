@@ -263,7 +263,7 @@ agent command line; tracked issue processing sends it after the once-per-poll id
   pane's current command is a non-shell process. A pane is also treated as live when its current
   command matches the selected `AGENT_COMMAND`.
 - `AGENT_APPROVAL_PATTERN`: extended regex used to detect approval and trust prompts. When this
-  matches, the watcher sends Enter.
+  matches in a live agent pane, the watcher sends Enter.
 - `AGENT_RECOVERABLE_ERROR_PATTERN`: extended regex used to detect terminal agent errors that can
   be retried by sending `AGENT_RECOVERY_PROMPT`. Defaults to Codex retry-limit errors with HTTP
   `403 Forbidden` or `429 Too Many Requests` status. WebSocket fallback warnings alone are not
