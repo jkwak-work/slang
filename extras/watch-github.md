@@ -5,8 +5,12 @@ internal state file. When a new comment or review appears, or CI starts failing,
 reuses a tmux session rooted in the PR worktree and sends:
 
 ```text
-<skill-prefix>slang-pr-resolve-comments <PR_URL>
+<skill-prefix>slang-pr-resolve-comments --single-pass <PR_URL>
 ```
+
+The watcher passes `--single-pass` to `slang-pr-resolve-comments`, so each dispatched agent pass
+handles the current PR state and returns control to the watcher instead of scheduling its own
+follow-up.
 
 The watch list is internal state managed by the surrounding workflow. It is read from
 `STATE_DIR/watch-github.conf`; this document intentionally does not define that file format as a
@@ -184,7 +188,7 @@ flowchart TD
 
     ZC -- yes --> ZCA{"Prompts paused?"}
     ZCA -- yes --> ZCB["Log skipped prompt; leave pending state for retry"]
-    ZCA -- no --> ZD["Ensure/start agent and send `slang-pr-resolve-comments`"]
+    ZCA -- no --> ZD["Ensure/start agent and send `slang-pr-resolve-comments --single-pass`"]
     ZCB --> ZP
     ZD --> ZE{"Prompt sent?"}
     ZE -- yes --> ZFA{Is there comment pending}
@@ -266,7 +270,11 @@ agent command line; tracked issue processing sends it after the once-per-poll id
 
 - `STATE_DIR`: directory for internal watcher state, including the PR list and seen IDs. Defaults
   to `${XDG_CACHE_HOME:-$HOME/.cache}/watch-github`.
-- `POLL_SECONDS`: seconds between polling passes. Defaults to `60`.
+- `POLL_SECONDS`: seconds between quiet idle polling passes. Defaults to `60`.
+- `POLL_ACTIVE_SECONDS`: seconds before the next poll when a tracked agent is still working.
+  Defaults to `10`.
+- `POLL_ACTION_SECONDS`: seconds before the next poll after the watcher sends input to an agent,
+  such as Enter, a recovery prompt, or a task prompt. Defaults to `5`.
 - `BOOTSTRAP_MODE`: `prime` records existing comments on first run without dispatching; `trigger`
   dispatches for already-present comments on first run. Defaults to `prime`.
 - `CI_BOOTSTRAP_MODE`: same behavior as `BOOTSTRAP_MODE`, but for current CI failure state.

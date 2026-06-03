@@ -146,6 +146,8 @@ class WatchGithub:
         self.state_dir = Path(os.environ.get("STATE_DIR", str(Path(cache_home) / "watch-github")))
         self.watch_state_file = self.state_dir / "watch-github.conf"
         self.poll_seconds = int(os.environ.get("POLL_SECONDS", "60"))
+        self.poll_active_seconds = int(os.environ.get("POLL_ACTIVE_SECONDS", "10"))
+        self.poll_action_seconds = int(os.environ.get("POLL_ACTION_SECONDS", "5"))
         self.bootstrap_mode = os.environ.get("BOOTSTRAP_MODE", "prime")
         self.ci_bootstrap_mode = os.environ.get("CI_BOOTSTRAP_MODE", self.bootstrap_mode)
         self.watch_ci = env_bool("WATCH_CI")
@@ -187,6 +189,7 @@ class WatchGithub:
         self.idle_screen_signatures: dict[str, str] = {}
         self.idle_screen_results: dict[str, str] = {}
         self.last_status_issue_message = ""
+        self.next_poll_seconds = self.poll_seconds
         self.status_line_active = False
 
     def run_cmd(
@@ -274,7 +277,7 @@ class WatchGithub:
     def print_status_line(self) -> None:
         status = (
             f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] last poll completed; "
-            f"watching {len(self.items)} item(s); next poll in {self.poll_seconds}s"
+            f"watching {len(self.items)} item(s); next poll in {self.next_poll_seconds}s"
         )
         if self.last_status_issue_message:
             status += f"; {self.last_status_issue_message}"
@@ -282,6 +285,18 @@ class WatchGithub:
 
     def record_status_issue_update(self) -> None:
         self.last_status_issue_message = f"status issue updated at {time.strftime('%H:%M:%S')}"
+
+    def reset_next_poll_delay(self) -> None:
+        self.next_poll_seconds = self.poll_seconds
+
+    def request_next_poll(self, seconds: int) -> None:
+        self.next_poll_seconds = min(self.next_poll_seconds, max(seconds, 0))
+
+    def request_active_poll(self) -> None:
+        self.request_next_poll(self.poll_active_seconds)
+
+    def request_action_poll(self) -> None:
+        self.request_next_poll(self.poll_action_seconds)
 
     @staticmethod
     def write_text_atomic(path: Path, text: str) -> None:
@@ -375,7 +390,7 @@ class WatchGithub:
         return [f"{prefix}{RESOLVE_SKILL}", f"{prefix}{PR_CREATE_SKILL}"]
 
     def resolve_prompt_for_pr_resolve(self, repo: str, pr: str) -> str:
-        return f"{self.skill_prefix_for_agent()}{RESOLVE_SKILL} https://github.com/{repo}/pull/{pr}\n"
+        return f"{self.skill_prefix_for_agent()}{RESOLVE_SKILL} --single-pass https://github.com/{repo}/pull/{pr}\n"
 
     def resolve_prompt_for_issue(self, repo: str, issue: str) -> str:
         return (
@@ -1811,7 +1826,9 @@ class WatchGithub:
         if not target:
             return False
         if not self.send_prompt_to_target(target, self.resolve_prompt_for_pr_resolve(repo, pr)):
+            self.request_action_poll()
             return False
+        self.request_action_poll()
         self.log(f"sent prompt for {repo}#{pr} to {target}")
         return True
 
@@ -1850,6 +1867,7 @@ class WatchGithub:
 
         if approved_waiting_prompt:
             self.set_status_phase(key, "Advancing agent")
+            self.request_action_poll()
             return False
         if recoverable_error_target:
             self.set_status_phase(key, "Recovering agent")
@@ -1857,12 +1875,14 @@ class WatchGithub:
                 recoverable_error_target, self.recover_prompt_for_agent()
             ):
                 self.recovered_error_signatures[recoverable_error_target] = recoverable_error_signature
+                self.request_action_poll()
                 self.log(
                     f"sent recovery prompt for {repo}#{pr} to {recoverable_error_target} "
                     "after recoverable agent error"
                 )
             else:
                 self.set_status_phase(key, "dispatch failed")
+                self.request_action_poll()
                 self.log(
                     f"failed to send recovery prompt for {repo}#{pr} after recoverable agent error"
                 )
@@ -1874,6 +1894,7 @@ class WatchGithub:
             )
             return False
         if not all_live_agents_idle:
+            self.request_active_poll()
             return False
 
         self.set_status_phase(key, "Waiting for next events")
@@ -1899,6 +1920,7 @@ class WatchGithub:
             self.remove_watch_state_item(repo, "", issue)
             return False
         if state != "idle":
+            self.request_active_poll()
             return True
         target = self.target_for_session(session)
         text = self.pane_tail(target)
@@ -1914,9 +1936,11 @@ class WatchGithub:
         if compare_status == 0:
             if self.send_prompt_to_target(target, self.resolve_prompt_for_issue(repo, issue)):
                 self.set_status_phase(key, "issue prompt")
+                self.request_action_poll()
                 self.log(f"sent initial issue prompt for {repo}#{issue} to {target}")
             else:
                 self.set_status_phase(key, "dispatch failed")
+                self.request_action_poll()
                 self.log(f"failed to send initial issue prompt for {repo}#{issue}")
             return True
         if compare_status == 2:
@@ -1925,9 +1949,11 @@ class WatchGithub:
             return True
         if self.send_prompt_to_target(target, self.resolve_prompt_for_pr_create(pr_base_repo)):
             self.set_status_phase(key, "create PR")
+            self.request_action_poll()
             self.log(f"sent PR create prompt for issue {repo}#{issue} to {target}")
         else:
             self.set_status_phase(key, "dispatch failed")
+            self.request_action_poll()
             self.log(f"failed to send PR create prompt for issue {repo}#{issue}")
         return True
 
@@ -2066,6 +2092,7 @@ class WatchGithub:
                 text = self.pane_tail(target)
                 if text and self.maybe_approve_prompt(target, text):
                     self.set_status_phase(key, "Advancing agent")
+                    self.request_action_poll()
 
     def poll_once(self) -> None:
         if not self.read_watch_state():
@@ -2103,13 +2130,14 @@ class WatchGithub:
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
         while True:
+            self.reset_next_poll_delay()
             self.poll_once()
             self.maybe_update_status_issue()
             self.persist_idle_screen_observations()
             self.print_status_line()
             if self.once:
                 break
-            time.sleep(self.poll_seconds)
+            time.sleep(self.next_poll_seconds)
         return 0
 
 
