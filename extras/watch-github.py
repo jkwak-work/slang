@@ -1818,7 +1818,7 @@ class WatchGithub:
                 approved_waiting_prompt = True
 
         if approved_waiting_prompt:
-            self.set_status_phase(key, "Advancing agent prompt")
+            self.set_status_phase(key, "Advancing agent")
             return False
         if not saw_live_agent:
             self.log(
@@ -2018,7 +2018,7 @@ class WatchGithub:
             for target in self.session_pane_targets(item.session):
                 text = self.pane_tail(target)
                 if text and self.maybe_approve_prompt(target, text):
-                    self.set_status_phase(key, "Advancing agent prompt")
+                    self.set_status_phase(key, "Advancing agent")
 
     def poll_once(self) -> None:
         if not self.read_watch_state():
