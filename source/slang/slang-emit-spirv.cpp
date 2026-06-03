@@ -7043,7 +7043,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
 
     SpvStorageClass getDescriptorHeapBufferStorageClass(IRType* valueType)
     {
-        valueType = (IRType*)unwrapAttributedType(valueType);
+        valueType = as<IRType>(unwrapAttributedType(valueType));
         auto ptrType = as<IRPtrTypeBase>(valueType);
         if (!ptrType)
         {
@@ -7128,7 +7128,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
 
     SpvInst* getDescriptorHeapBaseType(IRType* valueType, bool* outIsBufferResource = nullptr)
     {
-        valueType = (IRType*)unwrapAttributedType(valueType);
+        valueType = as<IRType>(unwrapAttributedType(valueType));
         SpvInst* descriptorElementType = nullptr;
         bool isBufferResource = false;
         switch (valueType->getOp())
