@@ -238,7 +238,8 @@ Options:
   captured lines so the visible tail is not duplicated. The combined capture is limited by
   `CAPTURE_LINES`. The `Phase` and `CI` cells include scan-friendly status icons: 🟢 ready or
   passing, 🔵 active work, 🟡 pending, 🔴 failure or unknown, ⏸️ paused or not watched, and ⚪
-  not applicable.
+  not applicable. Rows are sorted as issues first, then PRs outside the `shader-slang` owner, then
+  PRs under the `shader-slang` owner.
 
 ## Agent Configuration
 

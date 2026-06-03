@@ -1726,6 +1726,16 @@ class WatchGithub:
         return "⚪"
 
     @staticmethod
+    def status_sort_key(item: WatchItem, label: str) -> tuple[int, str]:
+        if item.issue:
+            category = 0
+        elif item.repo.split("/", 1)[0].lower() == "shader-slang":
+            category = 2
+        else:
+            category = 1
+        return category, label.lower()
+
+    @staticmethod
     def render_markdown_code_block(text: str) -> str:
         fence = "```"
         while fence in text:
@@ -1819,7 +1829,7 @@ class WatchGithub:
                 f'<tr><td colspan="3">&nbsp;&nbsp;&nbsp;&nbsp;&#9492;&#9472;&gt; '
                 f"{title_cell}</td></tr>"
             )
-            entries.append((f"{label}\t{row}", row, item))
+            entries.append((self.status_sort_key(item, label), row, item))
         entries.sort(key=lambda entry: entry[0])
         body = [
             STATUS_BLOCK_START,
