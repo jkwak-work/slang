@@ -1818,6 +1818,7 @@ class WatchGithub:
                 approved_waiting_prompt = True
 
         if approved_waiting_prompt:
+            self.set_status_phase(key, "Advancing agent prompt")
             return False
         if not saw_live_agent:
             self.log(
@@ -2013,10 +2014,11 @@ class WatchGithub:
         for item in self.items:
             if not self.tmux_session_exists(item.session):
                 continue
+            key = self.state_key_for_item(item)
             for target in self.session_pane_targets(item.session):
                 text = self.pane_tail(target)
-                if text:
-                    self.maybe_approve_prompt(target, text)
+                if text and self.maybe_approve_prompt(target, text):
+                    self.set_status_phase(key, "Advancing agent prompt")
 
     def poll_once(self) -> None:
         if not self.read_watch_state():

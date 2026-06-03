@@ -47,8 +47,9 @@ a new commit, it sends `slang-pr-create <origin-repo>`.
 For tracked PR rows, the watcher checks the configured tmux session before fetching PR state from
 GitHub. Missing sessions are logged and skipped until the next poll. Existing sessions are only
 polled for GitHub events after their live agent pane has gone idle. If the idle screen is waiting
-for a permission or trust prompt, the watcher sends Enter and waits for the next poll; otherwise it
-sets the phase to `Waiting for next events` before fetching PR, comment, and CI state.
+for a permission or trust prompt, the watcher sends Enter, sets the phase to
+`Advancing agent prompt`, and waits for the next poll; otherwise it sets the phase to
+`Waiting for next events` before fetching PR, comment, and CI state.
 
 ## Issue State Flow
 
@@ -126,7 +127,7 @@ flowchart TD
     B0 -- yes --> B2{"Live agent pane is idle?"}
     B2 -- no --> BZ
     B2 -- yes --> B3{"Idle screen is waiting for input?"}
-    B3 -- yes --> B4["Send Enter"]
+    B3 -- yes --> B4["Send Enter; set phase `Advancing agent prompt`"]
     B4 --> BZ
     B3 -- no --> B5["Set phase `Waiting for next events`"]
     B5 --> BA{"Fetch PR state?"}
