@@ -259,8 +259,9 @@ agent command line; tracked issue processing sends it after the once-per-poll id
 - `AGENT_WINDOW_NAME`: tmux window name for the agent. Defaults to the command name.
 - `AGENT_SESSION_PREFIX`: prefix for generated PR tmux session names. Defaults to
   `AGENT_WINDOW_NAME`.
-- `AGENT_READY_PATTERN`: extended regex used to detect that the agent has started. Readiness also
-  requires the tmux pane's current command to be a non-shell process.
+- `AGENT_READY_PATTERN`: extended regex used to detect that the agent has started when the tmux
+  pane's current command is a non-shell process. A pane is also treated as live when its current
+  command matches the selected `AGENT_COMMAND`.
 - `AGENT_APPROVAL_PATTERN`: extended regex used to detect approval and trust prompts. When this
   matches, the watcher sends Enter.
 - `AGENT_RECOVERABLE_ERROR_PATTERN`: extended regex used to detect terminal agent errors that can

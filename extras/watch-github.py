@@ -347,9 +347,9 @@ class WatchGithub:
 
         default_ready = self.agent_command_name
         if self.agent_command_name == "codex":
-            default_ready = r"Codex|gpt-[0-9]|(^|\s)›\s*$"
+            default_ready = r"Codex|gpt-[0-9]|(^|\s)[›❯]\s*$"
         elif self.agent_command_name in {"claude", "claude-code"}:
-            default_ready = r"Claude|(^|\s)>\s*$"
+            default_ready = r"Claude|(^|\s)[>❯]\s*(?:Try|$)"
 
         default_approval = r"Do you trust the contents of this directory|Do you want to proceed|(^|\s)[>❯›]\s+1[.] "
         default_recoverable_error = (
@@ -1460,6 +1460,18 @@ class WatchGithub:
     def current_command_for_target(self, target: str) -> str:
         return self.run_cmd(["tmux", "display-message", "-p", "-t", target, "#{pane_current_command}"]).stdout.strip()
 
+    @staticmethod
+    def normalized_command_name(command_name: str) -> str:
+        command_name = Path(command_name).name.lower()
+        return command_name.removesuffix(".exe")
+
+    def target_has_agent_process(self, target: str) -> bool:
+        command_name = self.normalized_command_name(self.current_command_for_target(target))
+        agent_name = self.normalized_command_name(self.agent_command_name)
+        if command_name == agent_name:
+            return True
+        return {command_name, agent_name} == {"claude", "claude-code"}
+
     def target_has_non_shell_process(self, target: str) -> bool:
         command_name = self.current_command_for_target(target)
         return bool(command_name) and not re.search(self.agent_shell_command_pattern, command_name)
@@ -1522,7 +1534,9 @@ class WatchGithub:
         return bool(re.search(self.agent_ready_pattern, text, re.MULTILINE))
 
     def target_looks_like_live_agent(self, target: str, text: str) -> bool:
-        return self.target_has_non_shell_process(target) and self.pane_looks_like_agent(text)
+        return self.target_has_agent_process(target) or (
+            self.target_has_non_shell_process(target) and self.pane_looks_like_agent(text)
+        )
 
     def approval_prompt_present(self, text: str) -> bool:
         if not self.agent_approval_pattern:
@@ -1826,7 +1840,7 @@ class WatchGithub:
             row = (
                 f'<tr><td><a href="{escaped_url}">{escaped_label}</a></td>'
                 f"<td>{phase}</td><td>{ci}</td></tr>"
-                f'<tr><td colspan="3">&nbsp;&nbsp;&nbsp;&nbsp;&#9492;&#9472;&gt; '
+                f'<tr><td colspan="3">&nbsp;&#9492;&#9472;&gt; '
                 f"{title_cell}</td></tr>"
             )
             entries.append((self.status_sort_key(item, label), row, item))
