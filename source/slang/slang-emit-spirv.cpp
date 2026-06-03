@@ -7042,7 +7042,10 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         return type;
     }
 
-    SpvInst* getDescriptorRuntimeArrayType(SpvInst* descriptorElementType)
+    SpvInst* getDescriptorRuntimeArrayType(
+        SpvInst* descriptorElementType,
+        bool useConstantSizeOfStride = true,
+        int defaultArrayStride = 0)
     {
         if (auto found = m_descriptorHeapRuntimeArrayTypes.tryGetValue(descriptorElementType))
             return *found;
@@ -7061,10 +7064,19 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         }
         if (userDefinedStride == 0)
         {
-            IRBuilder builder(m_irModule);
-            builder.setInsertInto(m_irModule->getModuleInst());
+            if (useConstantSizeOfStride)
+            {
+                IRBuilder builder(m_irModule);
+                builder.setInsertInto(m_irModule->getModuleInst());
 
-            stride = emitOpConstantSizeOfEXT(nullptr, builder.getUIntType(), descriptorElementType);
+                stride =
+                    emitOpConstantSizeOfEXT(nullptr, builder.getUIntType(), descriptorElementType);
+            }
+            else
+            {
+                SLANG_ASSERT(defaultArrayStride != 0);
+                userDefinedStride = defaultArrayStride;
+            }
         }
 
         auto runtimeArrayType = emitOpTypeRuntimeArray(nullptr, descriptorElementType);
@@ -7093,12 +7105,19 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
     {
         SpvInst* descriptorElementType = nullptr;
         bool isBufferResource = false;
+        bool useConstantSizeOfStride = true;
+        int defaultArrayStride = 0;
         switch (valueType->getOp())
         {
         case kIROp_TextureType:
         case kIROp_RaytracingAccelerationStructureType:
         case kIROp_SamplerStateType:
         case kIROp_SamplerComparisonStateType:
+            descriptorElementType = ensureInst(valueType);
+            break;
+        case kIROp_UInt64Type:
+            useConstantSizeOfStride = false;
+            defaultArrayStride = 8;
             descriptorElementType = ensureInst(valueType);
             break;
         default:
@@ -7111,7 +7130,10 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         if (outIsBufferResource)
             *outIsBufferResource = isBufferResource;
 
-        return getDescriptorRuntimeArrayType(descriptorElementType);
+        return getDescriptorRuntimeArrayType(
+            descriptorElementType,
+            useConstantSizeOfStride,
+            defaultArrayStride);
     }
 
     SpvInst* emitDescriptorHeapLoad(

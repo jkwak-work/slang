@@ -1371,6 +1371,61 @@ struct SPIRVLegalizationContext : public SourceEmitterBase
         }
     }
 
+    IRInst* emitConvertUIntToAccelerationStructure(
+        IRBuilder& builder,
+        IRType* accelerationStructureType,
+        IRInst* address)
+    {
+        auto asmBlock = builder.emitSPIRVAsm(accelerationStructureType);
+
+        IRBuilderInsertLocScope insertScope(&builder);
+        builder.setInsertInto(asmBlock);
+
+        auto emitOpcode = [&](SpvOp opcode)
+        {
+            return builder.emitSPIRVAsmOperandEnum(
+                builder.getIntValue(builder.getUIntType(), IRIntegerValue(opcode)));
+        };
+
+        {
+            List<IRInst*> operands;
+            operands.add(builder.emitSPIRVAsmOperandLiteral(
+                builder.getStringValue(UnownedStringSlice::fromLiteral("SPV_KHR_ray_tracing"))));
+            builder.emitSPIRVAsmInst(emitOpcode(SpvOpExtension), operands);
+        }
+
+        {
+            List<IRInst*> operands;
+            operands.add(builder.emitSPIRVAsmOperandInst(accelerationStructureType));
+            operands.add(builder.emitSPIRVAsmOperandResult());
+            operands.add(builder.emitSPIRVAsmOperandInst(address));
+            builder.emitSPIRVAsmInst(emitOpcode(SpvOpConvertUToAccelerationStructureKHR), operands);
+        }
+
+        return asmBlock;
+    }
+
+    void processSPIRVLoadDescriptorFromHeap(IRSPIRVLoadDescriptorFromHeap* inst)
+    {
+        auto resultType = inst->getDataType();
+        if (resultType->getOp() != kIROp_RaytracingAccelerationStructureType)
+            return;
+
+        IRBuilder builder(m_sharedContext->m_irModule);
+        builder.setInsertBefore(inst);
+        auto address = builder.emitLoadDescriptorFromHeap(
+            builder.getUInt64Type(),
+            inst->getHeap(),
+            inst->getIndex());
+        auto accelerationStructure =
+            emitConvertUIntToAccelerationStructure(builder, resultType, address);
+        inst->replaceUsesWith(accelerationStructure);
+        inst->removeAndDeallocate();
+
+        addToWorkList(address);
+        addUsersToWorkList(accelerationStructure);
+    }
+
     void processFieldAddress(IRFieldAddress* inst)
     {
         if (auto ptrType = as<IRPtrTypeBase>(inst->getBase()->getDataType()))
@@ -2115,6 +2170,9 @@ struct SPIRVLegalizationContext : public SourceEmitterBase
                 break;
             case kIROp_ImageSubscript:
                 processImageSubscript(as<IRImageSubscript>(inst));
+                break;
+            case kIROp_SPIRVLoadDescriptorFromHeap:
+                processSPIRVLoadDescriptorFromHeap(as<IRSPIRVLoadDescriptorFromHeap>(inst));
                 break;
             case kIROp_RWStructuredBufferGetElementPtr:
                 processRWStructuredBufferGetElementPtr(
