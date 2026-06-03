@@ -165,6 +165,8 @@ class WatchGithub:
         self.agent_command_name = ""
         self.agent_ready_pattern = os.environ.get("AGENT_READY_PATTERN", "")
         self.agent_approval_pattern = os.environ.get("AGENT_APPROVAL_PATTERN", "")
+        self.agent_recoverable_error_pattern = os.environ.get("AGENT_RECOVERABLE_ERROR_PATTERN", "")
+        self.agent_recovery_prompt = os.environ.get("AGENT_RECOVERY_PROMPT", "resume")
         self.agent_shell_command_pattern = os.environ.get("AGENT_SHELL_COMMAND_PATTERN", "")
         self.agent_window_name = os.environ.get("AGENT_WINDOW_NAME", "")
         self.agent_session_prefix = os.environ.get("AGENT_SESSION_PREFIX", "")
@@ -180,6 +182,7 @@ class WatchGithub:
         self.once = False
         self.items: list[WatchItem] = []
         self.approved_signatures: dict[str, str] = {}
+        self.recovered_error_signatures: dict[str, str] = {}
         self.idle_screen_texts: dict[str, str] = {}
         self.idle_screen_signatures: dict[str, str] = {}
         self.idle_screen_results: dict[str, str] = {}
@@ -332,10 +335,17 @@ class WatchGithub:
             default_ready = r"Claude|(^|\s)>\s*$"
 
         default_approval = r"Do you trust the contents of this directory|Do you want to proceed|(^|\s)[>❯›]\s+1[.] "
+        default_recoverable_error = (
+            r"(^|\n)\s*(?:■\s*)?exceeded retry limit, last status: "
+            r"(?:403 Forbidden|429 Too Many Requests)\b[^\n]*"
+        )
         default_shell = r"^(bash|dash|sh|zsh|fish|cmd|cmd[.]exe|powershell|powershell[.]exe|pwsh|pwsh[.]exe)$"
         self.agent_ready_pattern = self.translate_posix_regex(self.agent_ready_pattern or default_ready)
         self.agent_approval_pattern = self.translate_posix_regex(
             self.agent_approval_pattern or default_approval
+        )
+        self.agent_recoverable_error_pattern = self.translate_posix_regex(
+            self.agent_recoverable_error_pattern or default_recoverable_error
         )
         self.agent_shell_command_pattern = self.translate_posix_regex(
             self.agent_shell_command_pattern or default_shell
@@ -376,6 +386,9 @@ class WatchGithub:
 
     def resolve_prompt_for_pr_create(self, pr_repo: str) -> str:
         return f"{self.skill_prefix_for_agent()}{PR_CREATE_SKILL} {pr_repo}\n"
+
+    def recover_prompt_for_agent(self) -> str:
+        return self.agent_recovery_prompt.rstrip("\n") + "\n"
 
     def parse_args(self, argv: list[str]) -> None:
         parser = argparse.ArgumentParser(
@@ -1472,6 +1485,13 @@ class WatchGithub:
         tail_text = "\n".join(text.splitlines()[-self.match_tail_lines :])
         return bool(re.search(self.agent_approval_pattern, tail_text, re.MULTILINE))
 
+    def recoverable_agent_error_signature(self, text: str) -> str:
+        if not self.agent_recoverable_error_pattern:
+            return ""
+        tail_text = "\n".join(text.splitlines()[-self.match_tail_lines :])
+        match = re.search(self.agent_recoverable_error_pattern, tail_text, re.MULTILINE)
+        return self.signature_for(match.group(0).strip() + "\n") if match else ""
+
     def maybe_approve_prompt(self, target: str, text: str) -> bool:
         if not self.approval_prompt_present(text):
             return False
@@ -1806,6 +1826,8 @@ class WatchGithub:
         saw_live_agent = False
         all_live_agents_idle = True
         approved_waiting_prompt = False
+        recoverable_error_target = ""
+        recoverable_error_signature = ""
         for target in self.agent_pane_targets_for_session(session):
             text = self.pane_tail(target)
             if not text or not self.target_looks_like_live_agent(target, text):
@@ -1816,9 +1838,34 @@ class WatchGithub:
                 continue
             if self.maybe_approve_prompt(target, text):
                 approved_waiting_prompt = True
+            else:
+                error_signature = self.recoverable_agent_error_signature(text)
+                if (
+                    not recoverable_error_target
+                    and error_signature
+                    and self.recovered_error_signatures.get(target) != error_signature
+                ):
+                    recoverable_error_target = target
+                    recoverable_error_signature = error_signature
 
         if approved_waiting_prompt:
             self.set_status_phase(key, "Advancing agent")
+            return False
+        if recoverable_error_target:
+            self.set_status_phase(key, "Recovering agent")
+            if self.send_prompt_to_target(
+                recoverable_error_target, self.recover_prompt_for_agent()
+            ):
+                self.recovered_error_signatures[recoverable_error_target] = recoverable_error_signature
+                self.log(
+                    f"sent recovery prompt for {repo}#{pr} to {recoverable_error_target} "
+                    "after recoverable agent error"
+                )
+            else:
+                self.set_status_phase(key, "dispatch failed")
+                self.log(
+                    f"failed to send recovery prompt for {repo}#{pr} after recoverable agent error"
+                )
             return False
         if not saw_live_agent:
             self.log(

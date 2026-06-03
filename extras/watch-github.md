@@ -48,8 +48,10 @@ For tracked PR rows, the watcher checks the configured tmux session before fetch
 GitHub. Missing sessions are logged and skipped until the next poll. Existing sessions are only
 polled for GitHub events after their live agent pane has gone idle. If the idle screen is waiting
 for a permission or trust prompt, the watcher sends Enter, sets the phase to
-`Advancing agent`, and waits for the next poll; otherwise it sets the phase to
-`Waiting for next events` before fetching PR, comment, and CI state.
+`Advancing agent`, and waits for the next poll. If the idle screen contains a recoverable agent
+error, such as a Codex terminal retry-limit failure, the watcher sets the phase to
+`Recovering agent`, sends the recovery prompt, and waits for the next poll. Otherwise it sets the
+phase to `Waiting for next events` before fetching PR, comment, and CI state.
 
 ## Issue State Flow
 
@@ -129,7 +131,10 @@ flowchart TD
     B2 -- yes --> B3{"Idle screen is waiting for input?"}
     B3 -- yes --> B4["Send Enter; set phase `Advancing agent`"]
     B4 --> BZ
-    B3 -- no --> B5["Set phase `Waiting for next events`"]
+    B3 -- no --> B6{"Idle screen has recoverable agent error?"}
+    B6 -- yes --> B7["Set phase `Recovering agent`; send recovery prompt"]
+    B7 --> BZ
+    B6 -- no --> B5["Set phase `Waiting for next events`"]
     B5 --> BA{"Fetch PR state?"}
     BA -- no --> BB["Set phase `PR state unknown`"]
     BB --> BZ
@@ -245,6 +250,12 @@ agent command line; tracked issue processing sends it after the once-per-poll id
   requires the tmux pane's current command to be a non-shell process.
 - `AGENT_APPROVAL_PATTERN`: extended regex used to detect approval and trust prompts. When this
   matches, the watcher sends Enter.
+- `AGENT_RECOVERABLE_ERROR_PATTERN`: extended regex used to detect terminal agent errors that can
+  be retried by sending `AGENT_RECOVERY_PROMPT`. Defaults to Codex retry-limit errors with HTTP
+  `403 Forbidden` or `429 Too Many Requests` status. WebSocket fallback warnings alone are not
+  treated as terminal errors.
+- `AGENT_RECOVERY_PROMPT`: prompt sent after a recoverable terminal agent error. Defaults to
+  `resume`.
 - `AGENT_SHELL_COMMAND_PATTERN`: extended regex for shell process names that do not count as a
   live agent pane.
 - `AGENT_START_WAIT_SECONDS`: seconds between readiness checks after starting the agent, and the
