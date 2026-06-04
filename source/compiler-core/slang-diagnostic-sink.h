@@ -182,6 +182,11 @@ public:
     /// Get the total amount of errors that have taken place on this DiagnosticSink
     SLANG_FORCE_INLINE int getErrorCount() { return m_errorCount; }
 
+    /// Get the total number of diagnostics (of any severity, including warnings and
+    /// notes) that have been emitted on this DiagnosticSink. This is useful for callers
+    /// that need to detect whether *any* diagnostic was produced, not just errors.
+    SLANG_FORCE_INLINE int getDiagnosticCount() { return m_diagnosticCount; }
+
     template<typename P, typename... Args>
     bool diagnose(P const& pos, DiagnosticInfo const& info, Args const&... args)
     {
@@ -404,6 +409,7 @@ protected:
     DiagnosticSink* m_parentSink = nullptr;
 
     int m_errorCount = 0;
+    int m_diagnosticCount = 0;
     int m_internalErrorLocsNoted = 0;
 
     /// If 0, then there is no limit, otherwise max amount of chars of the source line location

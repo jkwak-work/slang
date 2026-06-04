@@ -372,6 +372,23 @@ public:
         ISlangBlob* blobHoldingSerializedData,
         ModuleChunk const* moduleChunk,
         RIFF::ListChunk const* containerChunk, //< The outer container, if there is one.
+        DiagnosticSink* sink,
+        bool discoverEntryPoints = true);
+
+    /// Serialize a (command-line) translation unit's `module` into a self-contained blob
+    /// suitable for storing in the front-end IR cache. Source locations are serialized using
+    /// this linkage's source manager so that diagnostics remain accurate after reuse.
+    SlangResult serializeModuleToBlobForCache(Module* module, ISlangBlob** outBlob);
+
+    /// Attempt to populate `module` (an as-yet-uncompiled translation-unit module) from a
+    /// previously serialized cache `blob`. Returns SLANG_OK only if the blob is valid and
+    /// up-to-date with the current files and options. Entry-point discovery is intentionally
+    /// skipped so that the normal front-end entry-point logic runs unchanged afterwards.
+    SlangResult loadCachedTranslationUnitModule(
+        Module* module,
+        Name* moduleName,
+        const PathInfo& moduleFilePathInfo,
+        ISlangBlob* blob,
         DiagnosticSink* sink);
 
     SourceFile* loadSourceFile(String pathFrom, String path);

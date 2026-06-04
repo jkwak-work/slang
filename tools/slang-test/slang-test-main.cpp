@@ -2635,6 +2635,35 @@ TestResult runLanguageServerTest(TestContext* context, TestInput& input)
     return result;
 }
 
+// Decide whether the front-end IR sharing option should be passed to slangc/slangi for this
+// test. Sharing only helps when the compiler runs against a session that persists across the
+// test file's `//TEST:` lines, i.e. the in-process shared-library mode or a (persistent)
+// test server. It is intentionally skipped for separate-process and fully-isolated-server
+// modes, where nothing would be reused.
+static bool _shouldShareFrontEndIR(TestContext* context, const TestInput& input)
+{
+    if (!context->options.shareFrontEndIR)
+        return false;
+
+    // Diagnostic tests assert on exact source-location spans (the `^^^^` carets). Reusing the
+    // serialized front-end IR reconstructs source files with size but no content, so a
+    // back-end diagnostic pointing into reused IR cannot re-lex token widths and would render
+    // a single-column caret. Codegen output is unaffected, but to keep diagnostics byte-exact
+    // we never share front-end IR for diagnostic-test lines.
+    String diagPrefix;
+    if (input.testOptions->getDiagTestPrefix(diagPrefix))
+        return false;
+
+    switch (context->getFinalSpawnType(input.spawnType))
+    {
+    case SpawnType::UseSharedLibrary:
+    case SpawnType::UseTestServer:
+        return true;
+    default:
+        return false;
+    }
+}
+
 TestResult runSimpleTest(TestContext* context, TestInput& input)
 {
     // need to execute the stand-alone Slang compiler on the file, and compare its output to what we
@@ -2663,6 +2692,11 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
         if (arg == kPreserveEmbeddedSourceOption)
             continue;
         cmdLine.addArg(arg);
+    }
+
+    if (_shouldShareFrontEndIR(context, input))
+    {
+        cmdLine.addArg("-use-shared-front-end-ir");
     }
 
     // If we can't set up for simple compilation, it's because some external resource isn't
@@ -2732,6 +2766,11 @@ TestResult runSimpleLineTest(TestContext* context, TestInput& input)
     for (auto arg : input.testOptions->args)
     {
         cmdLine.addArg(arg);
+    }
+
+    if (_shouldShareFrontEndIR(context, input))
+    {
+        cmdLine.addArg("-use-shared-front-end-ir");
     }
 
     ExecuteResult exeRes;

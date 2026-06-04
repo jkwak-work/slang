@@ -349,6 +349,38 @@ public:
     RefPtr<RefObject> m_typeCheckingCache;
     TypeCheckingCache* getTypeCheckingCache();
     std::mutex m_typeCheckingCacheMutex;
+
+    // Front-end IR cache.
+    //
+    // When the `UseSharedFrontEndIR` option is set (typically by slang-test), the lowered,
+    // target-agnostic IR for a command-line translation unit is serialized after the front end
+    // completes and stored here, keyed by a digest of the source file(s) and
+    // front-end-affecting options. A later compilation of the same source with the same
+    // front-end options (e.g. a different `-target`) can then reuse the cached IR and skip
+    // lexing/parsing/checking/lowering.
+    //
+    // This is purely an optimization: the cache is consulted only when that option is set. The
+    // key fully captures the front-end-affecting inputs (build tag, source path + content
+    // digest, and the front-end option-set hash) and the cache lives only for the lifetime of
+    // the session, so a hit reproduces the same lowered IR that recompilation would.
+    Dictionary<String, ComPtr<ISlangBlob>> m_frontEndIRCache;
+    std::mutex m_frontEndIRCacheMutex;
+    // Number of times a cached front-end IR blob was successfully reused. Used by tests to
+    // confirm the optimization is actually engaged (and for diagnostics).
+    std::atomic<int64_t> m_frontEndIRCacheHitCount = 0;
+
+    /// Look up a serialized module blob previously stored under `key`. Returns null on miss.
+    ComPtr<ISlangBlob> findFrontEndIRCacheEntry(const String& key);
+
+    /// Store a serialized module `blob` under `key` for later reuse.
+    void addFrontEndIRCacheEntry(const String& key, ISlangBlob* blob);
+
+    /// Record that a cached front-end IR blob was successfully reused for a translation unit.
+    void noteFrontEndIRCacheHit() { m_frontEndIRCacheHitCount++; }
+
+    /// Total number of successful front-end IR cache reuses on this session.
+    int64_t getFrontEndIRCacheHitCount() { return m_frontEndIRCacheHitCount.load(); }
+
     // GenericCCpp probing can recurse into per-compiler loads while holding the same lock.
     std::recursive_mutex m_downstreamCompilerMutex;
     // Backend compilation threads update and read these aggregate timing counters concurrently.

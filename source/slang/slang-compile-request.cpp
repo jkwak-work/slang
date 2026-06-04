@@ -571,6 +571,120 @@ void FrontEndCompileRequest::generateIR()
     }
 }
 
+bool FrontEndCompileRequest::canUseFrontEndIRCache(TranslationUnitRequest* translationUnit)
+{
+    if (!optionSet.getBoolOption(CompilerOptionName::UseSharedFrontEndIR))
+        return false;
+
+    // Only ordinary Slang source is serialized/deserialized as a module here.
+    if (translationUnit->sourceLanguage != SourceLanguage::Slang)
+        return false;
+
+    // The cache key is derived from a single file-backed source.
+    const auto& sourceFiles = translationUnit->getSourceFiles();
+    if (sourceFiles.getCount() != 1)
+        return false;
+    auto sourceFile = sourceFiles[0];
+    if (!sourceFile || !sourceFile->getPathInfo().hasFoundPath())
+        return false;
+
+    // Preprocessor-only output never reaches IR, so there is nothing to share.
+    if (optionSet.getBoolOption(CompilerOptionName::PreprocessorOutput))
+        return false;
+
+    // Core module code follows a specialized compilation path.
+    if (m_isCoreModuleCode)
+        return false;
+
+    // Entry points introduced via a library reference add state that the serialized module
+    // would not capture, so don't risk reuse in that case.
+    if (m_extraEntryPoints.getCount() != 0)
+        return false;
+
+    return true;
+}
+
+bool FrontEndCompileRequest::computeFrontEndIRCacheKey(
+    TranslationUnitRequest* translationUnit,
+    String& outKey)
+{
+    const auto& sourceFiles = translationUnit->getSourceFiles();
+    if (sourceFiles.getCount() != 1 || !sourceFiles[0])
+        return false;
+    auto sourceFile = sourceFiles[0];
+
+    DigestBuilder<SHA1> builder;
+    builder.append(UnownedStringSlice("slang-front-end-ir-cache-v1"));
+    builder.append(String(getBuildTagString()));
+    builder.append((uint32_t)translationUnit->sourceLanguage);
+    builder.append(sourceFile->getPathInfo().getMostUniqueIdentity());
+    builder.append(sourceFile->getDigest());
+    // Hash the front-end-affecting compiler options. Target/back-end options live on the
+    // per-target option sets (not this one), so compilations differing only by `-target`
+    // produce the same key and can share the cached IR.
+    optionSet.buildHash(builder);
+    outKey = builder.finalize().toString();
+    return true;
+}
+
+bool FrontEndCompileRequest::tryLoadTranslationUnitFromCache(
+    TranslationUnitRequest* translationUnit)
+{
+    if (!canUseFrontEndIRCache(translationUnit))
+        return false;
+
+    String key;
+    if (!computeFrontEndIRCacheKey(translationUnit, key))
+        return false;
+
+    auto session = getLinkage()->getSessionImpl();
+    auto blob = session->findFrontEndIRCacheEntry(key);
+    if (!blob)
+        return false;
+
+    auto sourceFile = translationUnit->getSourceFiles()[0];
+    auto pathInfo = sourceFile->getPathInfo();
+
+    if (SLANG_FAILED(getLinkage()->loadCachedTranslationUnitModule(
+            translationUnit->getModule(),
+            translationUnit->moduleName,
+            pathInfo,
+            blob,
+            getSink())))
+    {
+        // The cached IR was stale or could not be decoded. Discard any partial state and fall
+        // back to compiling this translation unit from scratch.
+        translationUnit->module = new Module(getLinkage());
+        if (translationUnit->moduleName)
+            translationUnit->module->setName(translationUnit->moduleName);
+        return false;
+    }
+
+    translationUnit->isChecked = true;
+    session->noteFrontEndIRCacheHit();
+    return true;
+}
+
+void FrontEndCompileRequest::storeTranslationUnitToCache(TranslationUnitRequest* translationUnit)
+{
+    if (!canUseFrontEndIRCache(translationUnit))
+        return;
+
+    auto module = translationUnit->getModule();
+    if (!module || !module->getIRModule() || !module->getModuleDecl())
+        return;
+
+    String key;
+    if (!computeFrontEndIRCacheKey(translationUnit, key))
+        return;
+
+    ComPtr<ISlangBlob> blob;
+    if (SLANG_FAILED(getLinkage()->serializeModuleToBlobForCache(module, blob.writeRef())))
+        return;
+
+    getLinkage()->getSessionImpl()->addFrontEndIRCacheEntry(key, blob);
+}
+
 SlangResult FrontEndCompileRequest::executeActionsInner()
 {
     SLANG_PROFILE_SECTION(frontEndExecute);
@@ -582,10 +696,29 @@ SlangResult FrontEndCompileRequest::executeActionsInner()
         SLANG_RETURN_ON_FAIL(translationUnit->requireSourceFiles());
     }
 
+    // Track which translation units were satisfied from the front-end IR cache so that we can
+    // skip parsing/checking/lowering for them, and avoid re-storing them afterwards.
+    const Index translationUnitCount = translationUnits.getCount();
+    List<bool> loadedFromCache;
+    loadedFromCache.setCount(translationUnitCount);
+    for (Index i = 0; i < translationUnitCount; ++i)
+        loadedFromCache[i] = false;
 
-    // Parse everything from the input files requested
-    for (TranslationUnitRequest* translationUnit : translationUnits)
+    // Snapshot the diagnostic count so we can later detect whether parsing/checking/lowering
+    // emitted any diagnostics. We only populate the cache for a fully diagnostic-free front
+    // end, because a later cache hit skips those steps and so would not reproduce any
+    // warnings or notes the original compile emitted.
+    const int diagnosticCountBeforeFrontEnd = getSink()->getDiagnosticCount();
+
+    // Parse everything from the input files requested (reusing cached IR where possible).
+    for (Index i = 0; i < translationUnitCount; ++i)
     {
+        auto translationUnit = translationUnits[i];
+        if (tryLoadTranslationUnitFromCache(translationUnit))
+        {
+            loadedFromCache[i] = true;
+            continue;
+        }
         parseTranslationUnit(translationUnit);
     }
 
@@ -636,6 +769,20 @@ SlangResult FrontEndCompileRequest::executeActionsInner()
     generateIR();
     if (getSink()->getErrorCount() != 0)
         return SLANG_FAIL;
+
+    // If the target-agnostic front end (parse/check/lower) completed without emitting any
+    // diagnostics, cache the lowered IR so a later compilation of the same source (e.g. for a
+    // different `-target`) can reuse it. The diagnostic-free requirement keeps reuse
+    // correctness-preserving: a cache hit skips the steps above, so it must not have hidden any
+    // diagnostics that the original compile produced.
+    if (getSink()->getDiagnosticCount() == diagnosticCountBeforeFrontEnd)
+    {
+        for (Index i = 0; i < translationUnitCount; ++i)
+        {
+            if (!loadedFromCache[i])
+                storeTranslationUnitToCache(translationUnits[i]);
+        }
+    }
 
     // Do parameter binding generation, for each compilation target.
     //

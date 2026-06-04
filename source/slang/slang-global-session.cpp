@@ -326,6 +326,20 @@ TypeCheckingCache* Session::getTypeCheckingCache()
     return static_cast<TypeCheckingCache*>(m_typeCheckingCache.get());
 }
 
+ComPtr<ISlangBlob> Session::findFrontEndIRCacheEntry(const String& key)
+{
+    std::lock_guard<std::mutex> lock(m_frontEndIRCacheMutex);
+    if (auto found = m_frontEndIRCache.tryGetValue(key))
+        return *found;
+    return ComPtr<ISlangBlob>();
+}
+
+void Session::addFrontEndIRCacheEntry(const String& key, ISlangBlob* blob)
+{
+    std::lock_guard<std::mutex> lock(m_frontEndIRCacheMutex);
+    m_frontEndIRCache[key] = ComPtr<ISlangBlob>(blob);
+}
+
 Session::BuiltinModuleInfo Session::getBuiltinModuleInfo(slang::BuiltinModuleName name)
 {
     Session::BuiltinModuleInfo result;
@@ -1258,3 +1272,10 @@ SlangResult checkExternalCompilerSupport(Session* session, PassThroughMode passT
 }
 
 } // namespace Slang
+
+SLANG_API int64_t slang_getFrontEndIRCacheHitCount(slang::IGlobalSession* globalSession)
+{
+    if (!globalSession)
+        return 0;
+    return static_cast<Slang::Session*>(globalSession)->getFrontEndIRCacheHitCount();
+}

@@ -96,6 +96,8 @@ static bool _isSubCommand(const char* arg)
         "  -shuffle-seed <seed>           Set shuffle seed (default: 1)\n"
         "  -explicit-test-order           Run tests in the order specified on command line\n"
         "                                 (alphabetical for prefixes matching multiple tests)\n"
+        "  -share-front-end-ir            Reuse target-agnostic front-end IR across a test's\n"
+        "                                 //TEST: lines (shared-library/test-server modes)\n"
         "  -dry-run                       List tests that would be run without running them\n"
         "  -disable-retries               Disable automatic retries of failed tests\n"
         "  -synthesize-compile-targets    Synthesize compile-only tests for all available\n"
@@ -294,6 +296,10 @@ static bool _isSubCommand(const char* arg)
         else if (strcmp(arg, "-disable-retries") == 0)
         {
             optionsOut->disableRetries = true;
+        }
+        else if (strcmp(arg, "-share-front-end-ir") == 0)
+        {
+            optionsOut->shareFrontEndIR = true;
         }
         else if (strcmp(arg, "-synthesize-compile-targets") == 0)
         {

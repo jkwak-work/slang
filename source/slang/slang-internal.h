@@ -18,4 +18,9 @@ SLANG_API SlangResult slang_createGlobalSessionImpl(
 
 SLANG_API void spSetCommandLineCompilerMode(SlangCompileRequest* request);
 
+/// Test/diagnostic hook: returns the number of times this global session reused front-end IR
+/// from its cache (see the `UseSharedFrontEndIR` option). Used by unit tests to confirm the
+/// optimization is actually engaged.
+SLANG_API int64_t slang_getFrontEndIRCacheHitCount(slang::IGlobalSession* globalSession);
+
 #endif

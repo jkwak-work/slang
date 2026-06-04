@@ -154,6 +154,21 @@ public:
 
     SlangResult executeActionsInner();
 
+    /// Returns true if the front-end IR cache may be used for `translationUnit`.
+    /// The cache is only safe for a single, file-backed Slang translation unit.
+    bool canUseFrontEndIRCache(TranslationUnitRequest* translationUnit);
+
+    /// Compute the cache key for `translationUnit` from the source file digest and the
+    /// front-end-affecting compiler options. Returns false if no stable key can be formed.
+    bool computeFrontEndIRCacheKey(TranslationUnitRequest* translationUnit, String& outKey);
+
+    /// Attempt to populate `translationUnit`'s module from the front-end IR cache. On success
+    /// the translation unit is marked checked and parsing/checking/lowering can be skipped.
+    bool tryLoadTranslationUnitFromCache(TranslationUnitRequest* translationUnit);
+
+    /// Store `translationUnit`'s freshly-compiled module into the front-end IR cache.
+    void storeTranslationUnitToCache(TranslationUnitRequest* translationUnit);
+
     /// Add a translation unit to be compiled.
     ///
     /// @param language The source language that the translation unit will use (e.g.,

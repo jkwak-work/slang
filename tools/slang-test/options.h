@@ -190,6 +190,18 @@ struct Options
     /// When true, only run synthesized compile-target tests (skip original tests).
     /// Implies -synthesize-compile-targets.
     bool onlySynthesized = false;
+
+    /// When true, pass `-use-shared-front-end-ir` to slangc/slangi for tests that run against a
+    /// persistent session (shared-library or test-server spawn modes), so the target-agnostic
+    /// front-end IR is computed once per source and reused across the remaining `//TEST:` lines
+    /// (e.g. different `-target`s). Enabled with `-share-front-end-ir`.
+    ///
+    /// This is OFF by default: reusing serialized front-end IR is byte-identical for code
+    /// generation, but a few back-end paths are sensitive to the round-trip (e.g. diagnostics
+    /// lose caret token-widths, and some specialized targets are not yet supported), so it is
+    /// not yet safe to apply blanket-wide to the whole suite. Individual tests can still opt in
+    /// by passing `-use-shared-front-end-ir` directly in their `//TEST:` line.
+    bool shareFrontEndIR = false;
 };
 
 #endif // OPTIONS_H_INCLUDED

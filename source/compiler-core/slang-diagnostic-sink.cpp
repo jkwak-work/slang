@@ -526,6 +526,7 @@ static void formatDiagnostic(DiagnosticSink* sink, Diagnostic const& diagnostic,
 void DiagnosticSink::init(SourceManager* sourceManager, SourceLocationLexer sourceLocationLexer)
 {
     m_errorCount = 0;
+    m_diagnosticCount = 0;
     m_internalErrorLocsNoted = 0;
 
     m_sourceManager = sourceManager;
@@ -544,6 +545,7 @@ void DiagnosticSink::init(SourceManager* sourceManager, SourceLocationLexer sour
 void DiagnosticSink::reset()
 {
     m_errorCount = 0;
+    m_diagnosticCount = 0;
     m_internalErrorLocsNoted = 0;
 
     outputBuffer.clear();
@@ -597,6 +599,7 @@ bool DiagnosticSink::diagnoseImpl(
     DiagnosticInfo const& info,
     const UnownedStringSlice& formattedMessage)
 {
+    m_diagnosticCount++;
     if (info.severity >= Severity::Error)
     {
         m_errorCount++;
@@ -652,6 +655,7 @@ bool DiagnosticSink::diagnoseRichImpl(
     GenericDiagnostic effectiveDiagnostic = diagnostic;
     effectiveDiagnostic.severity = effectiveSeverity;
 
+    m_diagnosticCount++;
     if (effectiveSeverity >= Severity::Error)
     {
         m_errorCount++;
@@ -789,6 +793,7 @@ void DiagnosticSink::diagnoseRaw(Severity severity, char const* message)
 
 void DiagnosticSink::diagnoseRaw(Severity severity, const UnownedStringSlice& message)
 {
+    m_diagnosticCount++;
     if (severity >= Severity::Error)
     {
         m_errorCount++;

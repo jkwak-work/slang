@@ -1205,6 +1205,12 @@ void initCommandOptions(CommandOptions& options)
          "-whole-program",
          nullptr,
          "Generate code for all entry points in a single output (library mode)."},
+        {OptionKind::UseSharedFrontEndIR,
+         "-use-shared-front-end-ir",
+         nullptr,
+         "Allow the lowered, target-agnostic IR for the input to be cached on the session "
+         "and reused by a later compilation of the same source with the same front-end "
+         "options. Intended for slang-test to share front-end work across targets."},
     };
     _addOptions(makeConstArrayView(internalOpts), options);
 
@@ -2629,6 +2635,7 @@ SlangResult OptionsParser::_parse(int argc, char const* const* argv)
         case OptionKind::PreserveParameters:
         case OptionKind::UseMSVCStyleBitfieldPacking:
         case OptionKind::ExperimentalFeature:
+        case OptionKind::UseSharedFrontEndIR:
             linkage->m_optionSet.set(optionKind, true);
             break;
         case OptionKind::EnableRichDiagnostics:

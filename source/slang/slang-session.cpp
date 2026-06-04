@@ -1,7 +1,9 @@
 // slang-session.cpp
 #include "slang-session.h"
 
+#include "../core/slang-blob.h"
 #include "../core/slang-shared-library.h"
+#include "../core/slang-stream.h"
 #include "compiler-core/slang-artifact-util.h"
 #include "slang-check-impl.h"
 #include "slang-compiler.h"
@@ -2070,7 +2072,8 @@ SlangResult Linkage::loadSerializedModuleContents(
     ISlangBlob* blobHoldingSerializedData,
     ModuleChunk const* moduleChunk,
     RIFF::ListChunk const* containerChunk,
-    DiagnosticSink* sink)
+    DiagnosticSink* sink,
+    bool discoverEntryPoints)
 {
     // At this point we've dealt with basically all of
     // the formalities, and we just need to get down
@@ -2231,7 +2234,8 @@ SlangResult Linkage::loadSerializedModuleContents(
             module->addModuleDependency(req);
     }
 
-    module->_discoverEntryPoints(sink, targets);
+    if (discoverEntryPoints)
+        module->_discoverEntryPoints(sink, targets);
 
     // Hook up fileDecl's scope to module's scope.
     for (auto fileDecl : moduleDecl->getDirectMemberDeclsOfType<FileDecl>())
@@ -2241,6 +2245,61 @@ SlangResult Linkage::loadSerializedModuleContents(
     if (sink->getErrorCount() != 0)
         return SLANG_FAIL;
     return SLANG_OK;
+}
+
+SlangResult Linkage::serializeModuleToBlobForCache(Module* module, ISlangBlob** outBlob)
+{
+    SLANG_AST_BUILDER_RAII(getASTBuilder());
+
+    SerialContainerUtil::WriteOptions writeOptions;
+    // Serialize source locations against this linkage's source manager so that the
+    // deserialized IR carries valid debug information when reused in a later request.
+    writeOptions.sourceManagerToUseWhenSerializingSourceLocs = getSourceManager();
+
+    OwnedMemoryStream memoryStream(FileAccess::Write);
+    SLANG_RETURN_ON_FAIL(SerialContainerUtil::write(module, writeOptions, &memoryStream));
+
+    auto contents = memoryStream.getContents();
+    *outBlob = RawBlob::create(contents.getBuffer(), (size_t)contents.getCount()).detach();
+    return SLANG_OK;
+}
+
+SlangResult Linkage::loadCachedTranslationUnitModule(
+    Module* module,
+    Name* moduleName,
+    const PathInfo& moduleFilePathInfo,
+    ISlangBlob* blob,
+    DiagnosticSink* sink)
+{
+    auto rootChunk = RIFF::RootChunk::getFromBlob(blob);
+    if (!rootChunk)
+        return SLANG_FAIL;
+
+    auto moduleChunk = ModuleChunk::find(rootChunk);
+    if (!moduleChunk)
+        return SLANG_FAIL;
+
+    // Correctness here is guaranteed by the cache key computed in
+    // `FrontEndCompileRequest::computeFrontEndIRCacheKey`, which incorporates the compiler
+    // build tag, the source file's canonical path and content digest, and the hash of the
+    // front-end-affecting compiler options. Any difference in those inputs yields a different
+    // key (and thus a miss). The cache is held only in memory for the lifetime of the session,
+    // so the contents of the source files cannot change between a store and a matching hit.
+    module->setName(moduleName);
+
+    // Deserialize directly into the translation unit's module. Entry-point discovery is
+    // intentionally skipped here so that the normal front-end entry-point logic
+    // (`FrontEndCompileRequest::checkEntryPoints`) runs afterwards exactly as it would for a
+    // from-scratch compile, handling both explicit `-entry` requests and `[shader]`
+    // attribute discovery identically.
+    return loadSerializedModuleContents(
+        module,
+        moduleFilePathInfo,
+        blob,
+        moduleChunk,
+        rootChunk,
+        sink,
+        /* discoverEntryPoints: */ false);
 }
 
 void Linkage::setRequireCacheFileSystem(bool requireCacheFileSystem)
