@@ -464,7 +464,12 @@ struct ByteAddressBufferLegalizationContext
                     &elementLayout));
                 IRIntegerValue elementStride = elementLayout.getStride();
                 auto alignmentVal = elementStride * elementCountInst->getValue();
-                if (!isAligned(baseOffset, immediateOffset, alignment, alignmentVal, elementLayout.alignment))
+                if (!isAligned(
+                        baseOffset,
+                        immediateOffset,
+                        alignment,
+                        alignmentVal,
+                        elementLayout.alignment))
                 {
                     return emitLegalSequenceLoad(
                         type,
@@ -575,8 +580,12 @@ struct ByteAddressBufferLegalizationContext
                     &elementLayout));
                 IRIntegerValue elementStride = elementLayout.getStride();
                 auto alignmentVal = elementStride * elementCountInst->getValue();
-                if (m_options.scalarizeVectorLoadStore ||
-                    !isAligned(baseOffset, immediateOffset, alignment, alignmentVal, elementLayout.alignment))
+                if (m_options.scalarizeVectorLoadStore || !isAligned(
+                                                              baseOffset,
+                                                              immediateOffset,
+                                                              alignment,
+                                                              alignmentVal,
+                                                              elementLayout.alignment))
                 {
                     return emitLegalSequenceLoad(
                         type,
@@ -649,13 +658,12 @@ struct ByteAddressBufferLegalizationContext
                 IRSizeAndAlignment sizeAlignment;
                 SLANG_RETURN_NULL_ON_FAIL(
                     getNaturalSizeAndAlignment(m_target, type, &sizeAlignment));
-                if (sizeAlignment.size == 8 &&
-                    !isAligned(
-                        baseOffset,
-                        immediateOffset,
-                        alignment,
-                        sizeAlignment.getStride(),
-                        sizeAlignment.getStride()))
+                if (sizeAlignment.size == 8 && !isAligned(
+                                                   baseOffset,
+                                                   immediateOffset,
+                                                   alignment,
+                                                   sizeAlignment.getStride(),
+                                                   sizeAlignment.getStride()))
                 {
                     return emitLegalUnaligned64BitLoadFromTwoUInts(
                         type,
@@ -1423,7 +1431,12 @@ struct ByteAddressBufferLegalizationContext
                     &elementLayout));
                 IRIntegerValue elementStride = elementLayout.getStride();
                 auto alignmentVal = elementStride * elementCountInst->getValue();
-                if (!isAligned(baseOffset, immediateOffset, alignment, alignmentVal, elementLayout.alignment))
+                if (!isAligned(
+                        baseOffset,
+                        immediateOffset,
+                        alignment,
+                        alignmentVal,
+                        elementLayout.alignment))
                 {
                     return emitLegalSequenceStore(
                         buffer,
@@ -1532,8 +1545,12 @@ struct ByteAddressBufferLegalizationContext
                     &elementLayout));
                 IRIntegerValue elementStride = elementLayout.getStride();
                 auto alignmentVal = elementStride * elementCountInst->getValue();
-                if (m_options.scalarizeVectorLoadStore ||
-                    !isAligned(baseOffset, immediateOffset, alignment, alignmentVal, elementLayout.alignment))
+                if (m_options.scalarizeVectorLoadStore || !isAligned(
+                                                              baseOffset,
+                                                              immediateOffset,
+                                                              alignment,
+                                                              alignmentVal,
+                                                              elementLayout.alignment))
                 {
                     return emitLegalSequenceStore(
                         buffer,
@@ -1584,13 +1601,12 @@ struct ByteAddressBufferLegalizationContext
             {
                 IRSizeAndAlignment sizeAlignment;
                 SLANG_RETURN_ON_FAIL(getNaturalSizeAndAlignment(m_target, type, &sizeAlignment));
-                if (sizeAlignment.size == 8 &&
-                    !isAligned(
-                        baseOffset,
-                        immediateOffset,
-                        alignment,
-                        sizeAlignment.getStride(),
-                        sizeAlignment.getStride()))
+                if (sizeAlignment.size == 8 && !isAligned(
+                                                   baseOffset,
+                                                   immediateOffset,
+                                                   alignment,
+                                                   sizeAlignment.getStride(),
+                                                   sizeAlignment.getStride()))
                 {
                     return emitLegalUnaligned64BitStoreAsTwoUInts(
                         buffer,
