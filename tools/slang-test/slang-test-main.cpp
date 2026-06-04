@@ -2649,7 +2649,10 @@ static bool _shouldShareFrontEndIR(TestContext* context, const TestInput& input)
     // serialized front-end IR reconstructs source files with size but no content, so a
     // back-end diagnostic pointing into reused IR cannot re-lex token widths and would render
     // a single-column caret. Codegen output is unaffected, but to keep diagnostics byte-exact
-    // we never share front-end IR for diagnostic-test lines.
+    // we never share front-end IR for diagnostic tests. Exclude both the `DIAGNOSTIC_TEST`
+    // command (Type::Diagnostic) and any `diag=`-style annotated SIMPLE line.
+    if (input.testOptions->type == TestOptions::Type::Diagnostic)
+        return false;
     String diagPrefix;
     if (input.testOptions->getDiagTestPrefix(diagPrefix))
         return false;

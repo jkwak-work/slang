@@ -98,7 +98,29 @@ SLANG_UNIT_TEST(frontEndIRCache)
         }
     )";
 
-    String tempPath = "unit-test-front-end-ir-cache-tmp.slang";
+    // Use unique temp paths (in the system temp dir) so parallel or retried runs cannot race on
+    // shared filenames, and clean them up via RAII so nothing leaks if a check aborts.
+    struct TempFiles
+    {
+        List<String> paths;
+        ~TempFiles()
+        {
+            for (auto& p : paths)
+                File::remove(p);
+        }
+    } tempFiles;
+
+    String base;
+    SLANG_CHECK_ABORT(
+        SLANG_SUCCEEDED(File::generateTemporary(UnownedStringSlice("slang-fe-ir-cache"), base)));
+    String tempPath = base + ".slang";
+    String spirvOut = base + ".spirv-asm";
+    String hlslOut = base + ".hlsl";
+    tempFiles.paths.add(base);
+    tempFiles.paths.add(tempPath);
+    tempFiles.paths.add(spirvOut);
+    tempFiles.paths.add(hlslOut);
+
     SLANG_CHECK_ABORT(SLANG_SUCCEEDED(File::writeAllText(tempPath, source)));
 
     ComPtr<slang::IGlobalSession> globalSession;
@@ -109,9 +131,9 @@ SLANG_UNIT_TEST(frontEndIRCache)
 
     // Authoritative references computed with the cache disabled: these never touch the cache.
     String baselineSpirv =
-        compileToTarget(globalSession, pathStr, "spirv-asm", "fe-ir-cache-spirv.tmp", false);
+        compileToTarget(globalSession, pathStr, "spirv-asm", spirvOut.getBuffer(), false);
     String baselineHlsl =
-        compileToTarget(globalSession, pathStr, "hlsl", "fe-ir-cache-hlsl.tmp", false);
+        compileToTarget(globalSession, pathStr, "hlsl", hlslOut.getBuffer(), false);
     SLANG_CHECK(baselineSpirv.getLength() != 0);
     SLANG_CHECK(baselineHlsl.getLength() != 0);
     // Disabled-cache compiles must not populate or consult the cache.
@@ -119,27 +141,23 @@ SLANG_UNIT_TEST(frontEndIRCache)
 
     // First cache-enabled compile: a miss that populates the cache with the lowered IR.
     String coldSpirv =
-        compileToTarget(globalSession, pathStr, "spirv-asm", "fe-ir-cache-spirv.tmp", true);
+        compileToTarget(globalSession, pathStr, "spirv-asm", spirvOut.getBuffer(), true);
     SLANG_CHECK(slang_getFrontEndIRCacheHitCount(globalSession) == 0);
 
     // Second cache-enabled compile of the same source/target: a hit that reuses the cached IR.
     int64_t hitsBeforeWarm = slang_getFrontEndIRCacheHitCount(globalSession);
     String warmSpirv =
-        compileToTarget(globalSession, pathStr, "spirv-asm", "fe-ir-cache-spirv.tmp", true);
+        compileToTarget(globalSession, pathStr, "spirv-asm", spirvOut.getBuffer(), true);
     SLANG_CHECK(slang_getFrontEndIRCacheHitCount(globalSession) == hitsBeforeWarm + 1);
 
     // Cache-enabled compile for a *different* target: the front end is target-agnostic, so this
     // reuses the same cached IR (the core scenario from issue 11176).
     int64_t hitsBeforeCross = slang_getFrontEndIRCacheHitCount(globalSession);
-    String warmHlsl = compileToTarget(globalSession, pathStr, "hlsl", "fe-ir-cache-hlsl.tmp", true);
+    String warmHlsl = compileToTarget(globalSession, pathStr, "hlsl", hlslOut.getBuffer(), true);
     SLANG_CHECK(slang_getFrontEndIRCacheHitCount(globalSession) == hitsBeforeCross + 1);
 
     // The whole point: reused IR must produce byte-identical artifacts to recomputed IR.
     SLANG_CHECK(coldSpirv == baselineSpirv);
     SLANG_CHECK(warmSpirv == baselineSpirv);
     SLANG_CHECK(warmHlsl == baselineHlsl);
-
-    File::remove("fe-ir-cache-spirv.tmp");
-    File::remove("fe-ir-cache-hlsl.tmp");
-    File::remove(tempPath);
 }
