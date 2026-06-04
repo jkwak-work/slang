@@ -573,7 +573,22 @@ void FrontEndCompileRequest::generateIR()
 
 bool FrontEndCompileRequest::canUseFrontEndIRCache(TranslationUnitRequest* translationUnit)
 {
+    if (!translationUnit)
+        return false;
+
     if (!optionSet.getBoolOption(CompilerOptionName::UseSharedFrontEndIR))
+        return false;
+
+    // Restrict to a single-translation-unit request. With more than one translation unit, a
+    // later unit may `import` an earlier one; reusing a cached unit marks it checked and would
+    // skip registering it in the per-request loaded-module set, breaking intra-request imports.
+    // Command-line single-file compiles (the slang-test case) always have exactly one unit.
+    if (translationUnits.getCount() != 1)
+        return false;
+
+    // Semantic checking can depend on externally supplied modules that the cache key does not
+    // capture, so don't reuse when any are present.
+    if (additionalLoadedModules && additionalLoadedModules->getCount() != 0)
         return false;
 
     // Only ordinary Slang source is serialized/deserialized as a module here.
@@ -588,8 +603,13 @@ bool FrontEndCompileRequest::canUseFrontEndIRCache(TranslationUnitRequest* trans
     if (!sourceFile || !sourceFile->getPathInfo().hasFoundPath())
         return false;
 
-    // Preprocessor-only output never reaches IR, so there is nothing to share.
-    if (optionSet.getBoolOption(CompilerOptionName::PreprocessorOutput))
+    // A cache hit skips `parseTranslationUnit`, which is also where preprocessor output,
+    // `-output-includes`, and `-dump-ast` are produced, and skips the optional debug
+    // serialization verification in `generateIR`. Don't share when any of those front-end
+    // side effects are requested, since reuse would suppress their output.
+    if (optionSet.getBoolOption(CompilerOptionName::PreprocessorOutput) ||
+        optionSet.getBoolOption(CompilerOptionName::OutputIncludes) ||
+        optionSet.getBoolOption(CompilerOptionName::DumpAst) || verifyDebugSerialization)
         return false;
 
     // Core module code follows a specialized compilation path.

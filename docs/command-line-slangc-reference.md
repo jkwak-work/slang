@@ -1057,6 +1057,11 @@ Enable loop inversion in the code-gen optimization. Default is off
 Generate code for all entry points in a single output (library mode). 
 
 
+<a id="use-shared-front-end-ir"></a>
+### -use-shared-front-end-ir
+Allow the lowered, target-agnostic IR for the input to be cached on the session and reused by a later compilation of the same source with the same front-end options. Intended for slang-test to share front-end work across targets. 
+
+
 
 <a id="deprecated"></a>
 ## Deprecated

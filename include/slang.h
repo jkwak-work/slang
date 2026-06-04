@@ -1187,7 +1187,7 @@ typedef uint32_t SlangSizeT;
                  //   artifact carries coverage metadata and must not overlap any emitted
                  //   artifact path. Query/set with the string option APIs.
 
-        UseSharedFrontEndIR = 150, // bool: when set, the lowered (target-agnostic) IR for a
+        UseSharedFrontEndIR = 151, // bool: when set, the lowered (target-agnostic) IR for a
                                    //   command-line translation unit may be cached on the
                                    //   session and reused by a later compilation of the same
                                    //   source with the same front-end options (e.g. for a

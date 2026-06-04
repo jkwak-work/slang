@@ -2249,6 +2249,9 @@ SlangResult Linkage::loadSerializedModuleContents(
 
 SlangResult Linkage::serializeModuleToBlobForCache(Module* module, ISlangBlob** outBlob)
 {
+    if (!module || !outBlob)
+        return SLANG_E_INVALID_ARG;
+
     SLANG_AST_BUILDER_RAII(getASTBuilder());
 
     SerialContainerUtil::WriteOptions writeOptions;
@@ -2271,6 +2274,9 @@ SlangResult Linkage::loadCachedTranslationUnitModule(
     ISlangBlob* blob,
     DiagnosticSink* sink)
 {
+    if (!module || !blob)
+        return SLANG_E_INVALID_ARG;
+
     auto rootChunk = RIFF::RootChunk::getFromBlob(blob);
     if (!rootChunk)
         return SLANG_FAIL;

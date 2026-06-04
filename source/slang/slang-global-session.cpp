@@ -336,6 +336,8 @@ ComPtr<ISlangBlob> Session::findFrontEndIRCacheEntry(const String& key)
 
 void Session::addFrontEndIRCacheEntry(const String& key, ISlangBlob* blob)
 {
+    if (!blob)
+        return;
     std::lock_guard<std::mutex> lock(m_frontEndIRCacheMutex);
     m_frontEndIRCache[key] = ComPtr<ISlangBlob>(blob);
 }

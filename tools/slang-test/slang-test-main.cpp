@@ -2642,7 +2642,7 @@ TestResult runLanguageServerTest(TestContext* context, TestInput& input)
 // modes, where nothing would be reused.
 static bool _shouldShareFrontEndIR(TestContext* context, const TestInput& input)
 {
-    if (!context->options.shareFrontEndIR)
+    if (!context->options.shareFrontEndIR || !input.testOptions)
         return false;
 
     // Diagnostic tests assert on exact source-location spans (the `^^^^` carets). Reusing the
