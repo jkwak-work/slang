@@ -185,6 +185,12 @@ jobs:
             echo "ℹ️  ccache_symlinks_path not set - building without ccache"
           fi
 
+          # macOS now builds DXC from source by default (#11438). Opt out here too:
+          # coverage-macos is a required gate for the nightly coverage merge.
+          if [[ "${{ inputs.os }}" == "macos" ]]; then
+            cmake_launcher_defines+=("-DSLANG_DXC_BUILD_FROM_SOURCE=OFF")
+          fi
+
           if [[ "${{ inputs.os }}" =~ "windows" && "${{ inputs.config }}" == "debug" ]]; then
             # Doing a debug build will try to link against a release built llvm, this
             # is a problem on Windows, so make slang-llvm in release build and use

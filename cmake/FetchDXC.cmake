@@ -458,6 +458,24 @@ elseif(
         )
     endif()
     return()
+elseif(
+    NOT DEFINED SLANG_DXC_BUILD_FROM_SOURCE
+    AND NOT DEFINED SLANG_DXC_BINARY_URL
+    AND CMAKE_SYSTEM_NAME STREQUAL "Darwin"
+)
+    # macOS: Microsoft publishes no prebuilt DXC binary, so a source build is
+    # the only way to get DXIL/DXC support. Default to building from source when
+    # the user has neither opted out with -DSLANG_DXC_BUILD_FROM_SOURCE=OFF nor
+    # supplied a custom prebuilt via -DSLANG_DXC_BINARY_URL. The first
+    # configure clones and builds DXC + LLVM/Clang from source (tens of
+    # minutes), then results are stamp-cached for subsequent reconfigures.
+    message(
+        STATUS
+        "macOS: building DXC from source by default (no prebuilt DXC binary "
+        "is published for macOS). Set -DSLANG_DXC_BUILD_FROM_SOURCE=OFF to "
+        "disable, or -DSLANG_DXC_BINARY_URL=<url> to use a custom prebuilt."
+    )
+    set(_dxc_build_from_source ON)
 endif()
 
 # ---------------------------------------------------------------------------
