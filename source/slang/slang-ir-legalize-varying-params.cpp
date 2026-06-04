@@ -3670,18 +3670,35 @@ private:
             if (!structType)
                 continue;
 
-            // Only structs whose fields actually carry semantics need fixing;
-            // `fixFieldSemanticsOfFlatStruct` is otherwise a no-op but iterates
-            // the whole module, so skip the irrelevant ones up front.
+            // Only structs whose fields actually carry semantics need fixing.
+            // Gate on semantic-bearing decorations specifically: an
+            // `IRSemanticDecoration`, or a layout decoration that holds a
+            // user/system-value semantic attribute. Triggering on any
+            // `IRLayoutDecoration` would be too broad and could route structs
+            // with unrelated (e.g. offset-only) layout metadata into
+            // `fixFieldSemanticsOfFlatStruct`, which may rewrite non-semantic
+            // offsets/attributes.
             bool hasFieldSemantic = false;
             for (auto field : structType->getFields())
             {
                 auto key = field->getKey();
-                if (key->findDecoration<IRSemanticDecoration>() ||
-                    key->findDecoration<IRLayoutDecoration>())
+                if (key->findDecoration<IRSemanticDecoration>())
                 {
                     hasFieldSemantic = true;
                     break;
+                }
+                if (auto layoutDecor = key->findDecoration<IRLayoutDecoration>())
+                {
+                    for (auto attr : layoutDecor->getLayout()->getAllAttrs())
+                    {
+                        if (as<IRUserSemanticAttr>(attr) || as<IRSystemValueSemanticAttr>(attr))
+                        {
+                            hasFieldSemantic = true;
+                            break;
+                        }
+                    }
+                    if (hasFieldSemantic)
+                        break;
                 }
             }
             if (!hasFieldSemantic)
