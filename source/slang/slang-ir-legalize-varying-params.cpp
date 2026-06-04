@@ -2378,6 +2378,15 @@ public:
         for (auto entryPoint : entryPoints)
             legalizeEntryPoint(entryPoint);
         removeSemanticLayoutsFromLegalizedStructs();
+
+        // Structs that carry user/SV_TARGET semantics but are not directly used
+        // as entry-point parameters or return types (e.g. a helper struct shared
+        // across functions) are never seen by `fixFieldSemanticsOfFlatStruct`
+        // above. Their fields keep the unparsed semantic name (e.g. "SV_TARGET0",
+        // "SV_TARGET1") with an unspecified index of -1, so the emitter maps them
+        // all to `@location(0)`, producing duplicate locations in WGSL/Metal.
+        // Fix the semantics of those remaining structs here. (See issue #10802.)
+        fixFieldSemanticsOfNonEntryPointStructs();
     }
 
 protected:
@@ -3647,6 +3656,38 @@ private:
                 oldLayoutDecorToNew[userSemantic.layoutDecor],
                 userSemantic.attr,
                 newUserSemantic);
+        }
+    }
+
+    // Apply `fixFieldSemanticsOfFlatStruct` to every struct in the module that
+    // carries semantic decorations on its fields but was not already handled as
+    // an entry-point parameter or return type.
+    void fixFieldSemanticsOfNonEntryPointStructs()
+    {
+        for (auto inst : m_module->getGlobalInsts())
+        {
+            auto structType = as<IRStructType>(inst);
+            if (!structType)
+                continue;
+
+            // Only structs whose fields actually carry semantics need fixing;
+            // `fixFieldSemanticsOfFlatStruct` is otherwise a no-op but iterates
+            // the whole module, so skip the irrelevant ones up front.
+            bool hasFieldSemantic = false;
+            for (auto field : structType->getFields())
+            {
+                auto key = field->getKey();
+                if (key->findDecoration<IRSemanticDecoration>() ||
+                    key->findDecoration<IRLayoutDecoration>())
+                {
+                    hasFieldSemantic = true;
+                    break;
+                }
+            }
+            if (!hasFieldSemantic)
+                continue;
+
+            fixFieldSemanticsOfFlatStruct(structType);
         }
     }
 
