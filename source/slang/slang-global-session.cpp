@@ -339,7 +339,21 @@ void Session::addFrontEndIRCacheEntry(const String& key, ISlangBlob* blob)
     if (!blob)
         return;
     std::lock_guard<std::mutex> lock(m_frontEndIRCacheMutex);
+    if (!m_frontEndIRCacheEnabled)
+        return;
     m_frontEndIRCache[key] = ComPtr<ISlangBlob>(blob);
+}
+
+void Session::clearFrontEndIRCache()
+{
+    std::lock_guard<std::mutex> lock(m_frontEndIRCacheMutex);
+    m_frontEndIRCache.clear();
+}
+
+void Session::setFrontEndIRCacheEnabled(bool enabled)
+{
+    std::lock_guard<std::mutex> lock(m_frontEndIRCacheMutex);
+    m_frontEndIRCacheEnabled = enabled;
 }
 
 Session::BuiltinModuleInfo Session::getBuiltinModuleInfo(slang::BuiltinModuleName name)
@@ -1280,4 +1294,18 @@ SLANG_API int64_t slang_getFrontEndIRCacheHitCount(slang::IGlobalSession* global
     if (!globalSession)
         return 0;
     return static_cast<Slang::Session*>(globalSession)->getFrontEndIRCacheHitCount();
+}
+
+SLANG_API void slang_clearFrontEndIRCache(slang::IGlobalSession* globalSession)
+{
+    if (!globalSession)
+        return;
+    static_cast<Slang::Session*>(globalSession)->clearFrontEndIRCache();
+}
+
+SLANG_API void slang_setFrontEndIRCacheEnabled(slang::IGlobalSession* globalSession, bool enabled)
+{
+    if (!globalSession)
+        return;
+    static_cast<Slang::Session*>(globalSession)->setFrontEndIRCacheEnabled(enabled);
 }

@@ -160,4 +160,45 @@ SLANG_UNIT_TEST(frontEndIRCache)
     SLANG_CHECK(coldSpirv == baselineSpirv);
     SLANG_CHECK(warmSpirv == baselineSpirv);
     SLANG_CHECK(warmHlsl == baselineHlsl);
+
+    // --- Explicit cache controls (issue 11176) ----------------------------------------------
+    // These let an embedder bound memory on a long-lived session.
+
+    // clearFrontEndIRCache() drops cached entries: the next compile of an already-seen
+    // source/target is a miss again (no new hit), and only the compile after that re-hits.
+    int64_t hitsBeforeClear = slang_getFrontEndIRCacheHitCount(globalSession);
+    slang_clearFrontEndIRCache(globalSession);
+    String afterClearSpirv =
+        compileToTarget(globalSession, pathStr, "spirv-asm", spirvOut.getBuffer(), true);
+    SLANG_CHECK(slang_getFrontEndIRCacheHitCount(globalSession) == hitsBeforeClear);
+    String reWarmSpirv =
+        compileToTarget(globalSession, pathStr, "spirv-asm", spirvOut.getBuffer(), true);
+    SLANG_CHECK(slang_getFrontEndIRCacheHitCount(globalSession) == hitsBeforeClear + 1);
+    SLANG_CHECK(afterClearSpirv == baselineSpirv);
+    SLANG_CHECK(reWarmSpirv == baselineSpirv);
+
+    // Disabling retention ("do-not-keep" mode) stops new entries from being stored: after a
+    // clear, repeated compiles never accumulate hits because nothing is retained.
+    slang_setFrontEndIRCacheEnabled(globalSession, false);
+    slang_clearFrontEndIRCache(globalSession);
+    int64_t hitsBeforeDisabled = slang_getFrontEndIRCacheHitCount(globalSession);
+    String disabledSpirv1 =
+        compileToTarget(globalSession, pathStr, "spirv-asm", spirvOut.getBuffer(), true);
+    String disabledSpirv2 =
+        compileToTarget(globalSession, pathStr, "spirv-asm", spirvOut.getBuffer(), true);
+    SLANG_CHECK(slang_getFrontEndIRCacheHitCount(globalSession) == hitsBeforeDisabled);
+    SLANG_CHECK(disabledSpirv1 == baselineSpirv);
+    SLANG_CHECK(disabledSpirv2 == baselineSpirv);
+
+    // Re-enabling restores normal caching: the first compile repopulates (miss), the next hits.
+    slang_setFrontEndIRCacheEnabled(globalSession, true);
+    int64_t hitsBeforeReenable = slang_getFrontEndIRCacheHitCount(globalSession);
+    String reenableMissSpirv =
+        compileToTarget(globalSession, pathStr, "spirv-asm", spirvOut.getBuffer(), true);
+    SLANG_CHECK(slang_getFrontEndIRCacheHitCount(globalSession) == hitsBeforeReenable);
+    String reenableWarmSpirv =
+        compileToTarget(globalSession, pathStr, "spirv-asm", spirvOut.getBuffer(), true);
+    SLANG_CHECK(slang_getFrontEndIRCacheHitCount(globalSession) == hitsBeforeReenable + 1);
+    SLANG_CHECK(reenableMissSpirv == baselineSpirv);
+    SLANG_CHECK(reenableWarmSpirv == baselineSpirv);
 }

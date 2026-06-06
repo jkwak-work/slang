@@ -368,12 +368,25 @@ public:
     // Number of times a cached front-end IR blob was successfully reused. Used by tests to
     // confirm the optimization is actually engaged (and for diagnostics).
     std::atomic<int64_t> m_frontEndIRCacheHitCount = 0;
+    // When false, addFrontEndIRCacheEntry() becomes a no-op so the cache stops growing
+    // ("do-not-keep" mode); existing entries are still reused on lookup. Defaults to true.
+    // Embedders can toggle this (and clear the cache) to bound memory on a long-lived session.
+    // Guarded by m_frontEndIRCacheMutex.
+    bool m_frontEndIRCacheEnabled = true;
 
     /// Look up a serialized module blob previously stored under `key`. Returns null on miss.
     ComPtr<ISlangBlob> findFrontEndIRCacheEntry(const String& key);
 
-    /// Store a serialized module `blob` under `key` for later reuse.
+    /// Store a serialized module `blob` under `key` for later reuse. No-op when retention is
+    /// disabled (see setFrontEndIRCacheEnabled).
     void addFrontEndIRCacheEntry(const String& key, ISlangBlob* blob);
+
+    /// Drop all cached front-end IR blobs, freeing their memory. Does not reset the hit count.
+    void clearFrontEndIRCache();
+
+    /// Enable or disable retention of new front-end IR cache entries. When disabled, entries
+    /// already present are still reused but no new entries are stored. Defaults to enabled.
+    void setFrontEndIRCacheEnabled(bool enabled);
 
     /// Record that a cached front-end IR blob was successfully reused for a translation unit.
     void noteFrontEndIRCacheHit() { m_frontEndIRCacheHitCount++; }
