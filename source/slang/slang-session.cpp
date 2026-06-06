@@ -1,10 +1,10 @@
 // slang-session.cpp
 #include "slang-session.h"
 
-#include "../core/slang-blob.h"
-#include "../core/slang-shared-library.h"
-#include "../core/slang-stream.h"
 #include "compiler-core/slang-artifact-util.h"
+#include "core/slang-blob.h"
+#include "core/slang-shared-library.h"
+#include "core/slang-stream.h"
 #include "slang-check-impl.h"
 #include "slang-compiler.h"
 #include "slang-lower-to-ir.h"
