@@ -6,45 +6,46 @@ OpenGL compatibility is not listed here, because OpenGL isn't an officially supp
 Items with a + means that the feature is anticipated to be added in the future.
 Items with ^ means there is some discussion about support later in the document for this target.
 
-| Feature                                              | D3D11 | D3D12     | VK      | CUDA           | Metal | CPU       |
-| ---------------------------------------------------- | ----- | --------- | ------- | -------------- | ----- | --------- |
-| [Half Type](#half)                                   | No    | Yes ^     | Yes     | Yes ^          | Yes   | No +      |
-| Double Type                                          | Yes   | Yes       | Yes     | Yes            | No    | Yes       |
-| Double Intrinsics                                    | No    | Limited + | Limited | Most           | No    | Yes       |
-| [u/int8_t Type](#int8_t)                             | No    | No        | Yes ^   | Yes            | Yes   | Yes       |
-| [u/int16_t Type](#int16_t)                           | No    | Yes ^     | Yes ^   | Yes            | Yes   | Yes       |
-| [u/int64_t Type](#int64_t)                           | No    | Yes ^     | Yes     | Yes            | Yes   | Yes       |
-| u/int64_t Intrinsics                                 | No    | No        | Yes     | Yes            | Yes   | Yes       |
-| [int matrix](#int-matrix)                            | Yes   | Yes       | No +    | Yes            | No    | Yes       |
-| [tex.GetDimensions](#tex-get-dimensions)             | Yes   | Yes       | Yes     | No             | Yes   | Yes       |
-| [SM6.0 Wave Intrinsics](#sm6-wave)                   | No    | Yes       | Partial | Yes ^          | No    | No        |
-| SM6.0 Quad Intrinsics                                | No    | Yes       | No +    | No             | No    | No        |
-| [SM6.5 Wave Intrinsics](#sm6.5-wave)                 | No    | Yes ^     | No +    | Yes ^          | No    | No        |
-| [WaveMask Intrinsics](#wave-mask)                    | Yes ^ | Yes ^     | Yes +   | Yes            | No    | No        |
-| [WaveShuffle](#wave-shuffle)                         | No    | Limited ^ | Yes     | Yes            | No    | No        |
-| [Tesselation](#tesselation)                          | Yes ^ | Yes ^     | No +    | No             | No    | No        |
-| [Graphics Pipeline](#graphics-pipeline)              | Yes   | Yes       | Yes     | No             | Yes   | No        |
-| [Ray Tracing DXR 1.0](#ray-tracing-1.0)              | No    | Yes ^     | Yes ^   | No             | No    | No        |
-| Ray Tracing DXR 1.1                                  | No    | Yes       | No +    | No             | No    | No        |
-| [Native Bindless](#native-bindless)                  | No    | No        | No      | Yes            | No    | Yes       |
-| [Buffer bounds](#buffer-bounds)                      | Yes   | Yes       | Yes     | Limited ^      | No ^  | Limited ^ |
-| [Resource bounds](#resource-bounds)                  | Yes   | Yes       | Yes     | Yes (optional) | Yes   | Yes       |
-| Atomics                                              | Yes   | Yes       | Yes     | Yes            | Yes   | Yes       |
-| Group shared mem/Barriers                            | Yes   | Yes       | Yes     | Yes            | Yes   | No +      |
-| [TextureArray.Sample float](#tex-array-sample-float) | Yes   | Yes       | Yes     | No             | Yes   | Yes       |
-| [Separate Sampler](#separate-sampler)                | Yes   | Yes       | Yes     | No             | Yes   | Yes       |
-| [tex.Load](#tex-load)                                | Yes   | Yes       | Yes     | Limited ^      | Yes   | Yes       |
-| [Full bool](#full-bool)                              | Yes   | Yes       | Yes     | No             | Yes   | Yes ^     |
-| [Mesh Shader](#mesh-shader)                          | No    | Yes       | Yes     | No             | Yes   | No        |
-| [`[unroll]`](#unroll]                                | Yes   | Yes       | Yes ^   | Yes            | No ^  | Limited + |
-| Atomics                                              | Yes   | Yes       | Yes     | Yes            | Yes   | No +      |
-| [Atomics on RWBuffer](#rwbuffer-atomics)             | Yes   | Yes       | Yes     | No             | Yes   | No +      |
-| [Sampler Feedback](#sampler-feedback)                | No    | Yes       | No +    | No             | No    | Yes ^     |
-| [RWByteAddressBuffer Atomic](#byte-address-atomic)   | No    | Yes ^     | Yes ^   | Yes            | Yes   | No +      |
-| [Shader Execution Reordering](#ser)                  | No    | Yes ^     | Yes ^   | No             | No    | No        |
-| [debugBreak](#debug-break)                           | No    | No        | Yes     | Yes            | No    | Yes       |
-| [realtime clock](#realtime-clock)                    | No    | Yes ^     | Yes     | Yes            | No    | No        |
-| [Switch Fall-Through](#switch-fallthrough)           | No ^  | Yes       | Yes     | Yes            | Yes   | Yes       |
+| Feature                                                       | D3D11 | D3D12     | VK      | CUDA           | Metal | CPU       |
+| ------------------------------------------------------------- | ----- | --------- | ------- | -------------- | ----- | --------- |
+| [Half Type](#half)                                            | No    | Yes ^     | Yes     | Yes ^          | Yes   | No +      |
+| Double Type                                                   | Yes   | Yes       | Yes     | Yes            | No    | Yes       |
+| Double Intrinsics                                             | No    | Limited + | Limited | Most           | No    | Yes       |
+| [u/int8_t Type](#int8_t)                                      | No    | No        | Yes ^   | Yes            | Yes   | Yes       |
+| [u/int16_t Type](#int16_t)                                    | No    | Yes ^     | Yes ^   | Yes            | Yes   | Yes       |
+| [u/int64_t Type](#int64_t)                                    | No    | Yes ^     | Yes     | Yes            | Yes   | Yes       |
+| u/int64_t Intrinsics                                          | No    | No        | Yes     | Yes            | Yes   | Yes       |
+| [int matrix](#int-matrix)                                     | Yes   | Yes       | No +    | Yes            | No    | Yes       |
+| [tex.GetDimensions](#tex-get-dimensions)                      | Yes   | Yes       | Yes     | No             | Yes   | Yes       |
+| [SM6.0 Wave Intrinsics](#sm6-wave)                            | No    | Yes       | Partial | Yes ^          | No    | No        |
+| SM6.0 Quad Intrinsics                                         | No    | Yes       | No +    | No             | No    | No        |
+| [SM6.5 Wave Intrinsics](#sm6.5-wave)                          | No    | Yes ^     | No +    | Yes ^          | No    | No        |
+| [WaveMask Intrinsics](#wave-mask)                             | Yes ^ | Yes ^     | Yes +   | Yes            | No    | No        |
+| [WaveShuffle](#wave-shuffle)                                  | No    | Limited ^ | Yes     | Yes            | No    | No        |
+| [Tesselation](#tesselation)                                   | Yes ^ | Yes ^     | No +    | No             | No    | No        |
+| [Graphics Pipeline](#graphics-pipeline)                       | Yes   | Yes       | Yes     | No             | Yes   | No        |
+| [Ray Tracing DXR 1.0](#ray-tracing-1.0)                       | No    | Yes ^     | Yes ^   | No             | No    | No        |
+| Ray Tracing DXR 1.1                                           | No    | Yes       | No +    | No             | No    | No        |
+| [Native Bindless](#native-bindless)                           | No    | No        | No      | Yes            | No    | Yes       |
+| [Buffer bounds](#buffer-bounds)                               | Yes   | Yes       | Yes     | Limited ^      | No ^  | Limited ^ |
+| [Resource bounds](#resource-bounds)                           | Yes   | Yes       | Yes     | Yes (optional) | Yes   | Yes       |
+| Atomics                                                       | Yes   | Yes       | Yes     | Yes            | Yes   | Yes       |
+| Group shared mem/Barriers                                     | Yes   | Yes       | Yes     | Yes            | Yes   | No +      |
+| [TextureArray.Sample float](#tex-array-sample-float)          | Yes   | Yes       | Yes     | No             | Yes   | Yes       |
+| [Separate Sampler](#separate-sampler)                         | Yes   | Yes       | Yes     | No             | Yes   | Yes       |
+| [tex.Load](#tex-load)                                         | Yes   | Yes       | Yes     | Limited ^      | Yes   | Yes       |
+| [Full bool](#full-bool)                                       | Yes   | Yes       | Yes     | No             | Yes   | Yes ^     |
+| [Mesh Shader](#mesh-shader)                                   | No    | Yes       | Yes     | No             | Yes   | No        |
+| [`[unroll]`](#unroll]                                         | Yes   | Yes       | Yes ^   | Yes            | No ^  | Limited + |
+| Atomics                                                       | Yes   | Yes       | Yes     | Yes            | Yes   | No +      |
+| [Atomics on RWBuffer](#rwbuffer-atomics)                      | Yes   | Yes       | Yes     | No             | Yes   | No +      |
+| [Sampler Feedback](#sampler-feedback)                         | No    | Yes       | No +    | No             | No    | Yes ^     |
+| [RWByteAddressBuffer Atomic](#byte-address-atomic)            | No    | Yes ^     | Yes ^   | Yes            | Yes   | No +      |
+| [ByteAddressBuffer Load/Store Alignment](#byte-address-align) | Yes ^ | Yes ^     | Yes ^   | Yes            | Yes   | Yes       |
+| [Shader Execution Reordering](#ser)                           | No    | Yes ^     | Yes ^   | No             | No    | No        |
+| [debugBreak](#debug-break)                                    | No    | No        | Yes     | Yes            | No    | Yes       |
+| [realtime clock](#realtime-clock)                             | No    | Yes ^     | Yes     | Yes            | No    | No        |
+| [Switch Fall-Through](#switch-fallthrough)                    | No ^  | Yes       | Yes     | Yes            | Yes   | Yes       |
 
 <a id="half"></a>
 
@@ -279,6 +280,55 @@ in the separate [NVAPI Support](nvapi-support.md) document.
 On Vulkan, for float the [`GL_EXT_shader_atomic_float`](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VK_EXT_shader_atomic_float.html) extension is required. For int64 the [`GL_EXT_shader_atomic_int64`](https://raw.githubusercontent.com/KhronosGroup/GLSL/master/extensions/ext/GL_EXT_shader_atomic_int64.txt) extension is required.
 
 CUDA requires SM6.0 or higher for int64 support.
+
+<a id="byte-address-align"></a>
+
+## ByteAddressBuffer Load/Store Alignment
+
+The templated `(RW)ByteAddressBuffer` accessors — `Load<T>`, `Store<T>`,
+`LoadAligned<T>(offset, alignment)`, and `StoreAligned<T>(offset, data, alignment)`
+— only require the access to be aligned to the buffer element's **scalar
+component**, not to the size of the whole aggregate. This matches the HLSL
+rules for the templated accessors (the non-templated `Load2`/`Load3`/`Load4`
+and `Store2`/`Store3`/`Store4` overloads keep their stricter 4-byte / `uint`
+alignment requirement).
+
+When an explicit `alignment` is smaller than the full aggregate but still a
+multiple of the scalar-component alignment, Slang scalarizes the access into
+per-component loads/stores rather than emitting a wide operation. An explicit
+alignment smaller than the scalar component (e.g. `1` for a `uint16_t2`) is
+still invalid and is diagnosed as error 41300.
+
+The minimum valid alignment is therefore the natural alignment of the scalar
+component type:
+
+| Scalar component      | Minimum alignment (bytes) |
+| --------------------- | ------------------------- |
+| `u/int8_t`            | 1                         |
+| `u/int16_t`, `half`   | 2                         |
+| `u/int`, `float`      | 4                         |
+| `u/int64_t`, `double` | 8                         |
+
+Whether a given scalar width is usable in a `ByteAddressBuffer` at all is a
+separate, pre-existing capability of each target (it is the same requirement
+that the type itself has — see [Half Type](#half), [u/int8_t Type](#int8_t),
+and [u/int16_t Type](#int16_t)). The scalar-alignment relaxation above does not
+make a width newly usable on a target that did not already support it:
+
+| Target               | 8-bit element | 16-bit element | 32-bit element | Notes                                                                                                                      |
+| -------------------- | ------------- | -------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| D3D12 (HLSL/DXIL)    | No            | Yes (SM6.2)    | Yes            | 16-bit needs Shader Model 6.2 + `-enable-16bit-types`; see [u/int16_t Type](#int16_t)                                      |
+| D3D11 (DXBC)         | No            | No             | Yes            | DXBC has no 16-bit scalar types                                                                                            |
+| Vulkan (SPIR-V/GLSL) | Yes ^         | Yes ^          | Yes            | 8-bit needs `GL_EXT_shader_8bit_storage`; 16-bit needs `GL_EXT_shader_16bit_storage`                                       |
+| CUDA                 | Yes           | Yes            | Yes            | Lowered to native pointer access                                                                                           |
+| Metal                | Yes           | Yes            | Yes            |                                                                                                                            |
+| WGSL (WebGPU)        | No            | No             | Yes            | 16-bit / 8-bit scalar storage types are not representable in WGSL; rejected as a type error before alignment is considered |
+| CPU                  | Yes           | Yes            | Yes            |                                                                                                                            |
+
+In short, a 2-byte-aligned `uint16_t2` access works on every target that
+supports the 16-bit element type (D3D12 with SM6.2, Vulkan, CUDA, Metal, CPU);
+WGSL is the only listed target that rejects it, and it does so because it has no
+16-bit storage type at all — independent of the alignment.
 
 <a id="mesh-shader"></a>
 
