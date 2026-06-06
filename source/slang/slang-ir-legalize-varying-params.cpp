@@ -2380,13 +2380,15 @@ public:
         removeSemanticLayoutsFromLegalizedStructs();
 
         // Structs that carry user/SV_TARGET semantics but are not directly used
-        // as entry-point parameters or return types (e.g. a helper struct shared
-        // across functions) are never seen by `fixFieldSemanticsOfFlatStruct`
-        // above. Their fields keep the unparsed semantic name (e.g. "SV_TARGET0",
-        // "SV_TARGET1") with an unspecified index of -1, so the emitter maps them
-        // all to `@location(0)`, producing duplicate locations in WGSL/Metal.
-        // Fix the semantics of those remaining structs here. (See issue #10802.)
-        fixFieldSemanticsOfNonEntryPointStructs();
+        // as entry-point parameters or return types (e.g. a helper struct used
+        // by a function the entry point calls) are never seen by
+        // `fixFieldSemanticsOfFlatStruct` above. Their fields keep the unparsed
+        // semantic name (e.g. "SV_TARGET0", "SV_TARGET1") with an unspecified
+        // index of -1, so the emitter maps them all to `@location(0)`,
+        // producing duplicate locations in WGSL/Metal. Fix those structs here,
+        // scoped to the ones reachable from the entry points being legalized.
+        // (See issue #10802.)
+        fixFieldSemanticsOfEntryPointReachableStructs(entryPoints);
     }
 
 protected:
@@ -3659,52 +3661,97 @@ private:
         }
     }
 
-    // Apply `fixFieldSemanticsOfFlatStruct` to every struct in the module that
-    // carries semantic decorations on its fields but was not already handled as
-    // an entry-point parameter or return type.
-    void fixFieldSemanticsOfNonEntryPointStructs()
+    // Recursively collect every `IRStructType` referenced by `type`, descending
+    // through operands so element types of pointers/arrays and the field types
+    // of nested structs are covered too.
+    void collectReachableStructsFromType(
+        IRInst* type,
+        HashSet<IRInst*>& visitedTypes,
+        OrderedHashSet<IRStructType*>& reachableStructs)
     {
-        for (auto inst : m_module->getGlobalInsts())
-        {
-            auto structType = as<IRStructType>(inst);
-            if (!structType)
-                continue;
+        if (!type || !visitedTypes.add(type))
+            return;
+        if (auto structType = as<IRStructType>(type))
+            reachableStructs.add(structType);
+        for (UInt i = 0; i < type->getOperandCount(); ++i)
+            collectReachableStructsFromType(type->getOperand(i), visitedTypes, reachableStructs);
+    }
 
-            // Only structs whose fields actually carry semantics need fixing.
-            // Gate on semantic-bearing decorations specifically: an
-            // `IRSemanticDecoration`, or a layout decoration that holds a
-            // user/system-value semantic attribute. Triggering on any
-            // `IRLayoutDecoration` would be too broad and could route structs
-            // with unrelated (e.g. offset-only) layout metadata into
-            // `fixFieldSemanticsOfFlatStruct`, which may rewrite non-semantic
-            // offsets/attributes.
-            bool hasFieldSemantic = false;
-            for (auto field : structType->getFields())
+    // Returns true if any field of `structType` carries a user/SV_TARGET
+    // semantic. Gate on semantic-bearing decorations specifically: an
+    // `IRSemanticDecoration`, or a layout decoration that holds a
+    // user/system-value semantic attribute. Triggering on any
+    // `IRLayoutDecoration` would be too broad and could route structs with
+    // unrelated (e.g. offset-only) layout metadata into
+    // `fixFieldSemanticsOfFlatStruct`, which may rewrite non-semantic
+    // offsets/attributes.
+    bool structHasFieldSemantic(IRStructType* structType)
+    {
+        for (auto field : structType->getFields())
+        {
+            auto key = field->getKey();
+            if (key->findDecoration<IRSemanticDecoration>())
+                return true;
+            if (auto layoutDecor = key->findDecoration<IRLayoutDecoration>())
             {
-                auto key = field->getKey();
-                if (key->findDecoration<IRSemanticDecoration>())
+                for (auto attr : layoutDecor->getLayout()->getAllAttrs())
                 {
-                    hasFieldSemantic = true;
-                    break;
-                }
-                if (auto layoutDecor = key->findDecoration<IRLayoutDecoration>())
-                {
-                    for (auto attr : layoutDecor->getLayout()->getAllAttrs())
-                    {
-                        if (as<IRUserSemanticAttr>(attr) || as<IRSystemValueSemanticAttr>(attr))
-                        {
-                            hasFieldSemantic = true;
-                            break;
-                        }
-                    }
-                    if (hasFieldSemantic)
-                        break;
+                    if (as<IRUserSemanticAttr>(attr) || as<IRSystemValueSemanticAttr>(attr))
+                        return true;
                 }
             }
-            if (!hasFieldSemantic)
-                continue;
+        }
+        return false;
+    }
 
-            fixFieldSemanticsOfFlatStruct(structType);
+    // Collect every `IRStructType` reachable from the given entry points (via
+    // their call graph and referenced types) and fix overlapping field
+    // semantics on those that carry user/SV_TARGET semantics. Scoping to the
+    // entry points being legalized — rather than sweeping the whole module —
+    // keeps structs unrelated to these entry points untouched.
+    void fixFieldSemanticsOfEntryPointReachableStructs(const List<EntryPointInfo>& entryPoints)
+    {
+        HashSet<IRInst*> visitedTypes;
+        OrderedHashSet<IRStructType*> reachableStructs;
+
+        // Walk the call graph from each entry point, gathering the types
+        // referenced by every reachable function.
+        HashSet<IRFunc*> visitedFuncs;
+        List<IRFunc*> funcWorkList;
+        auto addFunc = [&](IRInst* maybeFunc)
+        {
+            if (auto func = as<IRFunc>(maybeFunc))
+            {
+                if (visitedFuncs.add(func))
+                    funcWorkList.add(func);
+            }
+        };
+
+        for (auto entryPoint : entryPoints)
+            addFunc(entryPoint.entryPointFunc);
+
+        while (funcWorkList.getCount())
+        {
+            auto func = funcWorkList.getLast();
+            funcWorkList.removeLast();
+            for (auto block : func->getBlocks())
+            {
+                for (auto inst : block->getChildren())
+                {
+                    collectReachableStructsFromType(
+                        inst->getFullType(),
+                        visitedTypes,
+                        reachableStructs);
+                    if (auto call = as<IRCall>(inst))
+                        addFunc(call->getCalleeUse()->get());
+                }
+            }
+        }
+
+        for (auto structType : reachableStructs)
+        {
+            if (structHasFieldSemantic(structType))
+                fixFieldSemanticsOfFlatStruct(structType);
         }
     }
 
