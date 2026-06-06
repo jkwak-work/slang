@@ -1,6 +1,7 @@
 // slang-ir-legalize-varying-params.cpp
 #include "slang-ir-legalize-varying-params.h"
 
+#include "slang-ir-call-graph.h"
 #include "slang-ir-clone.h"
 #include "slang-ir-insts.h"
 #include "slang-ir-layout.h"
@@ -2378,17 +2379,51 @@ public:
         for (auto entryPoint : entryPoints)
             legalizeEntryPoint(entryPoint);
         removeSemanticLayoutsFromLegalizedStructs();
+    }
 
-        // Structs that carry user/SV_TARGET semantics but are not directly used
-        // as entry-point parameters or return types (e.g. a helper struct used
-        // by a function the entry point calls) are never seen by
-        // `fixFieldSemanticsOfFlatStruct` above. Their fields keep the unparsed
-        // semantic name (e.g. "SV_TARGET0", "SV_TARGET1") with an unspecified
-        // index of -1, so the emitter maps them all to `@location(0)`,
-        // producing duplicate locations in WGSL/Metal. Fix those structs here,
-        // scoped to the ones reachable from the entry points being legalized.
-        // (See issue #10802.)
-        fixFieldSemanticsOfEntryPointReachableStructs(entryPoints);
+    // Fix overlapping field semantics on structs that carry user/SV_TARGET
+    // semantics but are not themselves entry-point parameters or return types
+    // (e.g. a struct returned by a helper function the entry point calls). Such
+    // structs are never seen by the entry-point legalization above, so their
+    // fields keep the unparsed semantic name (e.g. "SV_TARGET0"/"SV_TARGET1"
+    // with an unspecified index of -1), which the WGSL/Metal emitter maps to a
+    // duplicate `@location(0)`. (See issue #10802.)
+    //
+    // This is a separate step from entry-point legalization: it is driven by
+    // the target backends after `legalizeEntryPoints()` rather than from it.
+    // It reuses `buildEntryPointReferenceGraph()` to limit the module-wide
+    // struct sweep to functions reachable from the module's entry points, so
+    // structs unrelated to those entry points are left untouched.
+    void fixVaryingSemanticsOfEntryPointReachableStructs()
+    {
+        Dictionary<IRInst*, HashSet<IRFunc*>> referencingEntryPoints;
+        buildEntryPointReferenceGraph(referencingEntryPoints, m_module);
+
+        HashSet<IRInst*> visitedTypes;
+        OrderedHashSet<IRStructType*> reachableStructs;
+        for (auto inst : m_module->getGlobalInsts())
+        {
+            auto func = as<IRFunc>(inst);
+            if (!func)
+                continue;
+            // Limit the sweep to functions reachable from an entry point.
+            if (!getReferencingEntryPoints(referencingEntryPoints, func))
+                continue;
+            for (auto block : func->getBlocks())
+            {
+                for (auto bodyInst : block->getChildren())
+                    collectReachableStructsFromType(
+                        bodyInst->getFullType(),
+                        visitedTypes,
+                        reachableStructs);
+            }
+        }
+
+        for (auto structType : reachableStructs)
+        {
+            if (structHasFieldSemantic(structType))
+                fixFieldSemanticsOfFlatStruct(structType);
+        }
     }
 
 protected:
@@ -3704,61 +3739,6 @@ private:
         return false;
     }
 
-    // Collect every `IRStructType` reachable from the given entry points (via
-    // their call graph and referenced types) and fix overlapping field
-    // semantics on those that carry user/SV_TARGET semantics. Scoping to the
-    // entry points being legalized — rather than sweeping the whole module —
-    // keeps structs unrelated to these entry points untouched.
-    void fixFieldSemanticsOfEntryPointReachableStructs(const List<EntryPointInfo>& entryPoints)
-    {
-        HashSet<IRInst*> visitedTypes;
-        OrderedHashSet<IRStructType*> reachableStructs;
-
-        // Walk the call graph from each entry point, gathering the types
-        // referenced by every reachable function.
-        HashSet<IRFunc*> visitedFuncs;
-        List<IRFunc*> funcWorkList;
-        auto addFunc = [&](IRInst* maybeFunc)
-        {
-            if (auto func = as<IRFunc>(maybeFunc))
-            {
-                if (visitedFuncs.add(func))
-                    funcWorkList.add(func);
-            }
-        };
-
-        for (auto entryPoint : entryPoints)
-            addFunc(entryPoint.entryPointFunc);
-
-        while (funcWorkList.getCount())
-        {
-            auto func = funcWorkList.getLast();
-            funcWorkList.removeLast();
-            for (auto block : func->getBlocks())
-            {
-                for (auto inst : block->getChildren())
-                {
-                    collectReachableStructsFromType(
-                        inst->getFullType(),
-                        visitedTypes,
-                        reachableStructs);
-                    if (auto call = as<IRCall>(inst))
-                    {
-                        // Resolve through `IRSpecialize`/generics so a
-                        // specialized callee's body is still walked.
-                        addFunc(getResolvedInstForDecorations(call->getCalleeUse()->get()));
-                    }
-                }
-            }
-        }
-
-        for (auto structType : reachableStructs)
-        {
-            if (structHasFieldSemantic(structType))
-                fixFieldSemanticsOfFlatStruct(structType);
-        }
-    }
-
     void wrapReturnValueInStruct(EntryPointInfo entryPoint)
     {
         // Wrap return value into a struct if it is not already a struct.
@@ -4933,6 +4913,10 @@ void legalizeEntryPointVaryingParamsForMetal(
     }
     LegalizeMetalEntryPointContext context(module, sink);
     context.legalizeEntryPoints(entryPoints);
+    // Separately from entry-point legalization, fix overlapping field semantics
+    // on structs reachable from the entry points (e.g. helper-function return
+    // structs) so they do not emit duplicate `[[color(0)]]`. (See issue #10802.)
+    context.fixVaryingSemanticsOfEntryPointReachableStructs();
 }
 
 void legalizeEntryPointVaryingParamsForWGSL(
@@ -4942,6 +4926,10 @@ void legalizeEntryPointVaryingParamsForWGSL(
 {
     LegalizeWGSLEntryPointContext context(module, sink);
     context.legalizeEntryPoints(entryPoints);
+    // Separately from entry-point legalization, fix overlapping field semantics
+    // on structs reachable from the entry points (e.g. helper-function return
+    // structs) so they do not emit duplicate `@location(0)`. (See issue #10802.)
+    context.fixVaryingSemanticsOfEntryPointReachableStructs();
 }
 
 } // namespace Slang
