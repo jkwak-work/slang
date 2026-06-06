@@ -3743,7 +3743,11 @@ private:
                         visitedTypes,
                         reachableStructs);
                     if (auto call = as<IRCall>(inst))
-                        addFunc(call->getCalleeUse()->get());
+                    {
+                        // Resolve through `IRSpecialize`/generics so a
+                        // specialized callee's body is still walked.
+                        addFunc(getResolvedInstForDecorations(call->getCalleeUse()->get()));
+                    }
                 }
             }
         }
