@@ -2366,38 +2366,41 @@ void depointerizeInputParams(IRFunc* entryPointFunc)
 }
 
 
-class LegalizeShaderEntryPointContext
+// Base context shared by entry-point varying-parameter legalization and the
+// standalone struct-field-semantic legalization pass. It owns the module/sink
+// and the routines that rewrite overlapping varying field semantics on a flat
+// struct, so neither task needs to know about the other.
+class LegalizeShaderVaryingStructContext
 {
 public:
-    void legalizeEntryPoints(List<EntryPointInfo>& entryPoints)
+    LegalizeShaderVaryingStructContext(IRModule* module, DiagnosticSink* sink)
+        : m_module(module), m_sink(sink)
     {
-        // Collect struct types used as return types before processing.
-        // We should not remove semantic decorations from these structs
-        // since they are needed for output variable binding (e.g., @location in WGSL).
-        collectStructTypesUsedAsReturnType(entryPoints);
-
-        for (auto entryPoint : entryPoints)
-            legalizeEntryPoint(entryPoint);
-        removeSemanticLayoutsFromLegalizedStructs();
     }
 
     // Fix overlapping field semantics on structs that carry user/SV_TARGET
     // semantics but are not themselves entry-point parameters or return types
     // (e.g. a struct returned by a helper function the entry point calls). Such
-    // structs are never seen by the entry-point legalization above, so their
+    // structs are never seen by the entry-point parameter legalization, so their
     // fields keep the unparsed semantic name (e.g. "SV_TARGET0"/"SV_TARGET1"
     // with an unspecified index of -1), which the WGSL/Metal emitter maps to a
     // duplicate `@location(0)`. (See issue #10802.)
     //
-    // This is a separate step from entry-point legalization: it is driven by
-    // the target backends after `legalizeEntryPoints()` rather than from it.
-    // It reuses `buildEntryPointReferenceGraph()` to limit the module-wide
-    // struct sweep to functions reachable from the module's entry points, so
-    // structs unrelated to those entry points are left untouched.
-    void fixVaryingSemanticsOfEntryPointReachableStructs()
+    // The sweep is limited to functions reachable from the given entry points,
+    // so structs unrelated to those entry points are left untouched.
+    void legalizeVaryingStructTypes(List<EntryPointInfo>& entryPoints)
     {
+        if (entryPoints.getCount() == 0)
+            return;
+
+        // Build the module's entry-point reference graph, then limit the struct
+        // sweep to functions reachable from the entry points we were given.
         Dictionary<IRInst*, HashSet<IRFunc*>> referencingEntryPoints;
         buildEntryPointReferenceGraph(referencingEntryPoints, m_module);
+
+        HashSet<IRFunc*> targetEntryPoints;
+        for (auto& entryPoint : entryPoints)
+            targetEntryPoints.add(entryPoint.entryPointFunc);
 
         HashSet<IRInst*> visitedTypes;
         OrderedHashSet<IRStructType*> reachableStructs;
@@ -2406,8 +2409,20 @@ public:
             auto func = as<IRFunc>(inst);
             if (!func)
                 continue;
-            // Limit the sweep to functions reachable from an entry point.
-            if (!getReferencingEntryPoints(referencingEntryPoints, func))
+            // Only consider functions reachable from one of the given entry points.
+            auto referencing = getReferencingEntryPoints(referencingEntryPoints, func);
+            if (!referencing)
+                continue;
+            bool reachable = false;
+            for (auto referencingFunc : *referencing)
+            {
+                if (targetEntryPoints.contains(referencingFunc))
+                {
+                    reachable = true;
+                    break;
+                }
+            }
+            if (!reachable)
                 continue;
             for (auto block : func->getBlocks())
             {
@@ -2427,13 +2442,351 @@ public:
     }
 
 protected:
-    LegalizeShaderEntryPointContext(IRModule* module, DiagnosticSink* sink)
-        : m_module(module), m_sink(sink)
-    {
-    }
-
     IRModule* m_module;
     DiagnosticSink* m_sink;
+
+    virtual UnownedStringSlice getUserSemanticNameSlice(String& loweredName, bool isUserSemantic)
+        const = 0;
+
+    UInt _returnNonOverlappingAttributeIndex(std::set<UInt>& usedSemanticIndex)
+    {
+        // Find first unused semantic index of equal semantic type
+        // to fill any gaps in user set semantic bindings
+        UInt prev = 0;
+        for (auto i : usedSemanticIndex)
+        {
+            if (i > prev + 1)
+            {
+                break;
+            }
+            prev = i;
+        }
+        usedSemanticIndex.insert(prev + 1);
+        return prev + 1;
+    }
+
+    template<typename T>
+    struct AttributeParentPair
+    {
+        IRLayoutDecoration* layoutDecor;
+        T* attr;
+    };
+
+    IRLayoutDecoration* _replaceAttributeOfLayout(
+        IRBuilder& builder,
+        IRLayoutDecoration* parentLayoutDecor,
+        IRInst* instToReplace,
+        IRInst* instToReplaceWith)
+    {
+        // Replace `instToReplace` with a `instToReplaceWith`
+
+        auto layout = parentLayoutDecor->getLayout();
+        // Find the exact same decoration `instToReplace` in-case multiple of the same type exist
+        List<IRInst*> opList;
+        opList.add(instToReplaceWith);
+        for (UInt i = 0; i < layout->getOperandCount(); i++)
+        {
+            if (layout->getOperand(i) != instToReplace)
+                opList.add(layout->getOperand(i));
+        }
+        auto newLayoutDecor = builder.addLayoutDecoration(
+            parentLayoutDecor->getParent(),
+            builder.getVarLayout(opList));
+        parentLayoutDecor->removeAndDeallocate();
+        return newLayoutDecor;
+    }
+
+    IRLayoutDecoration* _simplifyUserSemanticNames(
+        IRBuilder& builder,
+        IRLayoutDecoration* layoutDecor)
+    {
+        // Ensure all 'ExplicitIndex' semantics such as "SV_TARGET0" are simplified into
+        // ("SV_TARGET", 0) using 'IRUserSemanticAttr' This is done to ensure we can check semantic
+        // groups using 'IRUserSemanticAttr1->getName() == IRUserSemanticAttr2->getName()'
+        SLANG_ASSERT(layoutDecor);
+        auto layout = layoutDecor->getLayout();
+        List<IRInst*> layoutOps;
+        layoutOps.reserve(3);
+        bool changed = false;
+        for (auto attr : layout->getAllAttrs())
+        {
+            if (auto userSemantic = as<IRUserSemanticAttr>(attr))
+            {
+                UnownedStringSlice outName;
+                UnownedStringSlice outIndex;
+                bool hasStringIndex = splitNameAndIndex(userSemantic->getName(), outName, outIndex);
+                if (hasStringIndex)
+                {
+                    changed = true;
+                    auto loweredName = String(outName).toLower();
+                    auto loweredNameSlice = loweredName.getUnownedSlice();
+                    auto newDecoration =
+                        builder.getUserSemanticAttr(loweredNameSlice, stringToInt(outIndex));
+                    userSemantic->replaceUsesWith(newDecoration);
+                    userSemantic->removeAndDeallocate();
+                    userSemantic = newDecoration;
+                }
+                layoutOps.add(userSemantic);
+                continue;
+            }
+            layoutOps.add(attr);
+        }
+        if (changed)
+        {
+            auto parent = layoutDecor->parent;
+            layoutDecor->removeAndDeallocate();
+            builder.addLayoutDecoration(parent, builder.getVarLayout(layoutOps));
+        }
+        return layoutDecor;
+    }
+
+    // Find overlapping field semantics and legalize them
+    void fixFieldSemanticsOfFlatStruct(IRStructType* structType)
+    {
+        // Goal is to ensure we do not have overlapping semantics for the user defined semantics:
+        // Note that in WGSL, the semantics can be either `builtin` without index or `location` with
+        // index.
+        /*
+            // Assume the following code
+            struct Fragment
+            {
+                float4 p0 : SV_POSITION;
+                float2 p1 : TEXCOORD0;
+                float2 p2 : TEXCOORD1;
+                float3 p3 : COLOR0;
+                float3 p4 : COLOR1;
+            };
+
+            // Translates into
+            struct Fragment
+            {
+                float4 p0 : BUILTIN_POSITION;
+                float2 p1 : LOCATION_0;
+                float2 p2 : LOCATION_1;
+                float3 p3 : LOCATION_2;
+                float3 p4 : LOCATION_3;
+            };
+        */
+
+        // For Multi-Render-Target, the semantic index must be translated to `location` with
+        // the same index. Assume the following code
+        /*
+            struct Fragment
+            {
+                float4 p0 : SV_TARGET1;
+                float4 p1 : SV_TARGET0;
+            };
+
+            // Translates into
+            struct Fragment
+            {
+                float4 p0 : LOCATION_1;
+                float4 p1 : LOCATION_0;
+            };
+        */
+
+        IRBuilder builder(this->m_module);
+
+        List<IRSemanticDecoration*> overlappingSemanticsDecor;
+        Dictionary<UnownedStringSlice, std::set<UInt, std::less<UInt>>>
+            usedSemanticIndexSemanticDecor;
+
+        List<AttributeParentPair<IRVarOffsetAttr>> overlappingVarOffset;
+        Dictionary<UInt, std::set<UInt, std::less<UInt>>> usedSemanticIndexVarOffset;
+
+        List<AttributeParentPair<IRUserSemanticAttr>> overlappingUserSemantic;
+        Dictionary<UnownedStringSlice, std::set<UInt, std::less<UInt>>>
+            usedSemanticIndexUserSemantic;
+
+        // We store a map from old `IRLayoutDecoration*` to new `IRLayoutDecoration*` since when
+        // legalizing we may destroy and remake a `IRLayoutDecoration*`
+        Dictionary<IRLayoutDecoration*, IRLayoutDecoration*> oldLayoutDecorToNew;
+
+        // Collect all "semantic info carrying decorations". Any collected decoration will
+        // fill up their respective 'Dictionary<SEMANTIC_TYPE, OrderedHashSet<UInt>>'
+        // to keep track of in-use offsets for a semantic type.
+        // Example: IRSemanticDecoration with name of "SV_TARGET1".
+        // * This will have SEMANTIC_TYPE of "sv_target".
+        // * This will use up index '1'
+        //
+        // Now if a second equal semantic "SV_TARGET1" is found, we add this decoration to
+        // a list of 'overlapping semantic info decorations' so we can legalize this
+        // 'semantic info decoration' later.
+        //
+        // NOTE: this is a flat struct, all members are children of the initial
+        // IRStructType.
+        for (auto field : structType->getFields())
+        {
+            auto key = field->getKey();
+            if (auto semanticDecoration = key->findDecoration<IRSemanticDecoration>())
+            {
+                auto semanticName = semanticDecoration->getSemanticName();
+
+                // sv_target is treated as a user-semantic because it should be emitted with
+                // @location like how the user semantics are emitted.
+                // For fragment shader, only sv_target will user @location, and for non-fragment
+                // shaders, sv_target is not valid.
+                bool isUserSemantic =
+                    (semanticName.startsWithCaseInsensitive(toSlice("sv_target")) ||
+                     !semanticName.startsWithCaseInsensitive(toSlice("sv_")));
+
+                // Ensure names are in a uniform lowercase format so we can bunch together simmilar
+                // semantics.
+                UnownedStringSlice outName;
+                UnownedStringSlice outIndex;
+                bool hasStringIndex = splitNameAndIndex(semanticName, outName, outIndex);
+
+                auto loweredName = String(outName).toLower();
+                auto loweredNameSlice = getUserSemanticNameSlice(loweredName, isUserSemantic);
+                auto semanticIndex = hasStringIndex
+                                         ? stringToInt(outIndex)
+                                         : semanticDecoration->getEffectiveSemanticIndex();
+                auto newDecoration =
+                    builder.addSemanticDecoration(key, loweredNameSlice, semanticIndex);
+
+                semanticDecoration->replaceUsesWith(newDecoration);
+                semanticDecoration->removeAndDeallocate();
+                semanticDecoration = newDecoration;
+
+                auto& semanticUse =
+                    usedSemanticIndexSemanticDecor[semanticDecoration->getSemanticName()];
+                if (semanticUse.find(semanticDecoration->getSemanticIndex()) != semanticUse.end())
+                    overlappingSemanticsDecor.add(semanticDecoration);
+                else
+                    semanticUse.insert(semanticDecoration->getSemanticIndex());
+            }
+            if (auto layoutDecor = key->findDecoration<IRLayoutDecoration>())
+            {
+                // Ensure names are in a uniform lowercase format so we can bunch together simmilar
+                // semantics
+                layoutDecor = _simplifyUserSemanticNames(builder, layoutDecor);
+                oldLayoutDecorToNew[layoutDecor] = layoutDecor;
+                auto layout = layoutDecor->getLayout();
+                for (auto attr : layout->getAllAttrs())
+                {
+                    if (auto offset = as<IRVarOffsetAttr>(attr))
+                    {
+                        auto& semanticUse = usedSemanticIndexVarOffset[offset->getResourceKind()];
+                        if (semanticUse.find(offset->getOffset()) != semanticUse.end())
+                            overlappingVarOffset.add({layoutDecor, offset});
+                        else
+                            semanticUse.insert(offset->getOffset());
+                    }
+                    else if (auto userSemantic = as<IRUserSemanticAttr>(attr))
+                    {
+                        auto& semanticUse = usedSemanticIndexUserSemantic[userSemantic->getName()];
+                        if (semanticUse.find(userSemantic->getIndex()) != semanticUse.end())
+                            overlappingUserSemantic.add({layoutDecor, userSemantic});
+                        else
+                            semanticUse.insert(userSemantic->getIndex());
+                    }
+                }
+            }
+        }
+
+        // Legalize all overlapping 'semantic info decorations'
+        for (auto decor : overlappingSemanticsDecor)
+        {
+            auto newOffset = _returnNonOverlappingAttributeIndex(
+                usedSemanticIndexSemanticDecor[decor->getSemanticName()]);
+            builder.addSemanticDecoration(
+                decor->getParent(),
+                decor->getSemanticName(),
+                (int)newOffset);
+            decor->removeAndDeallocate();
+        }
+        for (auto& varOffset : overlappingVarOffset)
+        {
+            auto newOffset = _returnNonOverlappingAttributeIndex(
+                usedSemanticIndexVarOffset[varOffset.attr->getResourceKind()]);
+            auto newVarOffset = builder.getVarOffsetAttr(
+                varOffset.attr->getResourceKind(),
+                newOffset,
+                varOffset.attr->getSpace());
+            oldLayoutDecorToNew[varOffset.layoutDecor] = _replaceAttributeOfLayout(
+                builder,
+                oldLayoutDecorToNew[varOffset.layoutDecor],
+                varOffset.attr,
+                newVarOffset);
+        }
+        for (auto& userSemantic : overlappingUserSemantic)
+        {
+            auto newOffset = _returnNonOverlappingAttributeIndex(
+                usedSemanticIndexUserSemantic[userSemantic.attr->getName()]);
+            auto newUserSemantic =
+                builder.getUserSemanticAttr(userSemantic.attr->getName(), newOffset);
+            oldLayoutDecorToNew[userSemantic.layoutDecor] = _replaceAttributeOfLayout(
+                builder,
+                oldLayoutDecorToNew[userSemantic.layoutDecor],
+                userSemantic.attr,
+                newUserSemantic);
+        }
+    }
+
+    // Recursively collect every `IRStructType` referenced by `type`, descending
+    // through operands so element types of pointers/arrays and the field types
+    // of nested structs are covered too.
+    void collectReachableStructsFromType(
+        IRInst* type,
+        HashSet<IRInst*>& visitedTypes,
+        OrderedHashSet<IRStructType*>& reachableStructs)
+    {
+        if (!type || !visitedTypes.add(type))
+            return;
+        if (auto structType = as<IRStructType>(type))
+            reachableStructs.add(structType);
+        for (UInt i = 0; i < type->getOperandCount(); ++i)
+            collectReachableStructsFromType(type->getOperand(i), visitedTypes, reachableStructs);
+    }
+
+    // Returns true if any field of `structType` carries a user/SV_TARGET
+    // semantic. Gate on semantic-bearing decorations specifically: an
+    // `IRSemanticDecoration`, or a layout decoration that holds a
+    // user/system-value semantic attribute. Triggering on any
+    // `IRLayoutDecoration` would be too broad and could route structs with
+    // unrelated (e.g. offset-only) layout metadata into
+    // `fixFieldSemanticsOfFlatStruct`, which may rewrite non-semantic
+    // offsets/attributes.
+    bool structHasFieldSemantic(IRStructType* structType)
+    {
+        for (auto field : structType->getFields())
+        {
+            auto key = field->getKey();
+            if (key->findDecoration<IRSemanticDecoration>())
+                return true;
+            if (auto layoutDecor = key->findDecoration<IRLayoutDecoration>())
+            {
+                for (auto attr : layoutDecor->getLayout()->getAllAttrs())
+                {
+                    if (as<IRUserSemanticAttr>(attr) || as<IRSystemValueSemanticAttr>(attr))
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+};
+
+class LegalizeShaderEntryPointContext : public LegalizeShaderVaryingStructContext
+{
+public:
+    void legalizeEntryPoints(List<EntryPointInfo>& entryPoints)
+    {
+        // Collect struct types used as return types before processing.
+        // We should not remove semantic decorations from these structs
+        // since they are needed for output variable binding (e.g., @location in WGSL).
+        collectStructTypesUsedAsReturnType(entryPoints);
+
+        for (auto entryPoint : entryPoints)
+            legalizeEntryPoint(entryPoint);
+        removeSemanticLayoutsFromLegalizedStructs();
+    }
+
+protected:
+    LegalizeShaderEntryPointContext(IRModule* module, DiagnosticSink* sink)
+        : LegalizeShaderVaryingStructContext(module, sink)
+    {
+    }
 
     struct SystemValueInfo
     {
@@ -2463,9 +2816,6 @@ protected:
         EntryPointInfo entryPoint) const = 0;
 
     virtual void flattenNestedStructsTransferKeyDecorations(IRInst* newKey, IRInst* oldKey)
-        const = 0;
-
-    virtual UnownedStringSlice getUserSemanticNameSlice(String& loweredName, bool isUserSemantic)
         const = 0;
 
     virtual void addFragmentShaderReturnValueDecoration(
@@ -3419,324 +3769,6 @@ private:
                 returnInst->setOperand(0, copyLogicFunc(builder, newType, returnVal));
             }
         }
-    }
-
-    UInt _returnNonOverlappingAttributeIndex(std::set<UInt>& usedSemanticIndex)
-    {
-        // Find first unused semantic index of equal semantic type
-        // to fill any gaps in user set semantic bindings
-        UInt prev = 0;
-        for (auto i : usedSemanticIndex)
-        {
-            if (i > prev + 1)
-            {
-                break;
-            }
-            prev = i;
-        }
-        usedSemanticIndex.insert(prev + 1);
-        return prev + 1;
-    }
-
-    template<typename T>
-    struct AttributeParentPair
-    {
-        IRLayoutDecoration* layoutDecor;
-        T* attr;
-    };
-
-    IRLayoutDecoration* _replaceAttributeOfLayout(
-        IRBuilder& builder,
-        IRLayoutDecoration* parentLayoutDecor,
-        IRInst* instToReplace,
-        IRInst* instToReplaceWith)
-    {
-        // Replace `instToReplace` with a `instToReplaceWith`
-
-        auto layout = parentLayoutDecor->getLayout();
-        // Find the exact same decoration `instToReplace` in-case multiple of the same type exist
-        List<IRInst*> opList;
-        opList.add(instToReplaceWith);
-        for (UInt i = 0; i < layout->getOperandCount(); i++)
-        {
-            if (layout->getOperand(i) != instToReplace)
-                opList.add(layout->getOperand(i));
-        }
-        auto newLayoutDecor = builder.addLayoutDecoration(
-            parentLayoutDecor->getParent(),
-            builder.getVarLayout(opList));
-        parentLayoutDecor->removeAndDeallocate();
-        return newLayoutDecor;
-    }
-
-    IRLayoutDecoration* _simplifyUserSemanticNames(
-        IRBuilder& builder,
-        IRLayoutDecoration* layoutDecor)
-    {
-        // Ensure all 'ExplicitIndex' semantics such as "SV_TARGET0" are simplified into
-        // ("SV_TARGET", 0) using 'IRUserSemanticAttr' This is done to ensure we can check semantic
-        // groups using 'IRUserSemanticAttr1->getName() == IRUserSemanticAttr2->getName()'
-        SLANG_ASSERT(layoutDecor);
-        auto layout = layoutDecor->getLayout();
-        List<IRInst*> layoutOps;
-        layoutOps.reserve(3);
-        bool changed = false;
-        for (auto attr : layout->getAllAttrs())
-        {
-            if (auto userSemantic = as<IRUserSemanticAttr>(attr))
-            {
-                UnownedStringSlice outName;
-                UnownedStringSlice outIndex;
-                bool hasStringIndex = splitNameAndIndex(userSemantic->getName(), outName, outIndex);
-                if (hasStringIndex)
-                {
-                    changed = true;
-                    auto loweredName = String(outName).toLower();
-                    auto loweredNameSlice = loweredName.getUnownedSlice();
-                    auto newDecoration =
-                        builder.getUserSemanticAttr(loweredNameSlice, stringToInt(outIndex));
-                    userSemantic->replaceUsesWith(newDecoration);
-                    userSemantic->removeAndDeallocate();
-                    userSemantic = newDecoration;
-                }
-                layoutOps.add(userSemantic);
-                continue;
-            }
-            layoutOps.add(attr);
-        }
-        if (changed)
-        {
-            auto parent = layoutDecor->parent;
-            layoutDecor->removeAndDeallocate();
-            builder.addLayoutDecoration(parent, builder.getVarLayout(layoutOps));
-        }
-        return layoutDecor;
-    }
-
-    // Find overlapping field semantics and legalize them
-    void fixFieldSemanticsOfFlatStruct(IRStructType* structType)
-    {
-        // Goal is to ensure we do not have overlapping semantics for the user defined semantics:
-        // Note that in WGSL, the semantics can be either `builtin` without index or `location` with
-        // index.
-        /*
-            // Assume the following code
-            struct Fragment
-            {
-                float4 p0 : SV_POSITION;
-                float2 p1 : TEXCOORD0;
-                float2 p2 : TEXCOORD1;
-                float3 p3 : COLOR0;
-                float3 p4 : COLOR1;
-            };
-
-            // Translates into
-            struct Fragment
-            {
-                float4 p0 : BUILTIN_POSITION;
-                float2 p1 : LOCATION_0;
-                float2 p2 : LOCATION_1;
-                float3 p3 : LOCATION_2;
-                float3 p4 : LOCATION_3;
-            };
-        */
-
-        // For Multi-Render-Target, the semantic index must be translated to `location` with
-        // the same index. Assume the following code
-        /*
-            struct Fragment
-            {
-                float4 p0 : SV_TARGET1;
-                float4 p1 : SV_TARGET0;
-            };
-
-            // Translates into
-            struct Fragment
-            {
-                float4 p0 : LOCATION_1;
-                float4 p1 : LOCATION_0;
-            };
-        */
-
-        IRBuilder builder(this->m_module);
-
-        List<IRSemanticDecoration*> overlappingSemanticsDecor;
-        Dictionary<UnownedStringSlice, std::set<UInt, std::less<UInt>>>
-            usedSemanticIndexSemanticDecor;
-
-        List<AttributeParentPair<IRVarOffsetAttr>> overlappingVarOffset;
-        Dictionary<UInt, std::set<UInt, std::less<UInt>>> usedSemanticIndexVarOffset;
-
-        List<AttributeParentPair<IRUserSemanticAttr>> overlappingUserSemantic;
-        Dictionary<UnownedStringSlice, std::set<UInt, std::less<UInt>>>
-            usedSemanticIndexUserSemantic;
-
-        // We store a map from old `IRLayoutDecoration*` to new `IRLayoutDecoration*` since when
-        // legalizing we may destroy and remake a `IRLayoutDecoration*`
-        Dictionary<IRLayoutDecoration*, IRLayoutDecoration*> oldLayoutDecorToNew;
-
-        // Collect all "semantic info carrying decorations". Any collected decoration will
-        // fill up their respective 'Dictionary<SEMANTIC_TYPE, OrderedHashSet<UInt>>'
-        // to keep track of in-use offsets for a semantic type.
-        // Example: IRSemanticDecoration with name of "SV_TARGET1".
-        // * This will have SEMANTIC_TYPE of "sv_target".
-        // * This will use up index '1'
-        //
-        // Now if a second equal semantic "SV_TARGET1" is found, we add this decoration to
-        // a list of 'overlapping semantic info decorations' so we can legalize this
-        // 'semantic info decoration' later.
-        //
-        // NOTE: this is a flat struct, all members are children of the initial
-        // IRStructType.
-        for (auto field : structType->getFields())
-        {
-            auto key = field->getKey();
-            if (auto semanticDecoration = key->findDecoration<IRSemanticDecoration>())
-            {
-                auto semanticName = semanticDecoration->getSemanticName();
-
-                // sv_target is treated as a user-semantic because it should be emitted with
-                // @location like how the user semantics are emitted.
-                // For fragment shader, only sv_target will user @location, and for non-fragment
-                // shaders, sv_target is not valid.
-                bool isUserSemantic =
-                    (semanticName.startsWithCaseInsensitive(toSlice("sv_target")) ||
-                     !semanticName.startsWithCaseInsensitive(toSlice("sv_")));
-
-                // Ensure names are in a uniform lowercase format so we can bunch together simmilar
-                // semantics.
-                UnownedStringSlice outName;
-                UnownedStringSlice outIndex;
-                bool hasStringIndex = splitNameAndIndex(semanticName, outName, outIndex);
-
-                auto loweredName = String(outName).toLower();
-                auto loweredNameSlice = getUserSemanticNameSlice(loweredName, isUserSemantic);
-                auto semanticIndex = hasStringIndex
-                                         ? stringToInt(outIndex)
-                                         : semanticDecoration->getEffectiveSemanticIndex();
-                auto newDecoration =
-                    builder.addSemanticDecoration(key, loweredNameSlice, semanticIndex);
-
-                semanticDecoration->replaceUsesWith(newDecoration);
-                semanticDecoration->removeAndDeallocate();
-                semanticDecoration = newDecoration;
-
-                auto& semanticUse =
-                    usedSemanticIndexSemanticDecor[semanticDecoration->getSemanticName()];
-                if (semanticUse.find(semanticDecoration->getSemanticIndex()) != semanticUse.end())
-                    overlappingSemanticsDecor.add(semanticDecoration);
-                else
-                    semanticUse.insert(semanticDecoration->getSemanticIndex());
-            }
-            if (auto layoutDecor = key->findDecoration<IRLayoutDecoration>())
-            {
-                // Ensure names are in a uniform lowercase format so we can bunch together simmilar
-                // semantics
-                layoutDecor = _simplifyUserSemanticNames(builder, layoutDecor);
-                oldLayoutDecorToNew[layoutDecor] = layoutDecor;
-                auto layout = layoutDecor->getLayout();
-                for (auto attr : layout->getAllAttrs())
-                {
-                    if (auto offset = as<IRVarOffsetAttr>(attr))
-                    {
-                        auto& semanticUse = usedSemanticIndexVarOffset[offset->getResourceKind()];
-                        if (semanticUse.find(offset->getOffset()) != semanticUse.end())
-                            overlappingVarOffset.add({layoutDecor, offset});
-                        else
-                            semanticUse.insert(offset->getOffset());
-                    }
-                    else if (auto userSemantic = as<IRUserSemanticAttr>(attr))
-                    {
-                        auto& semanticUse = usedSemanticIndexUserSemantic[userSemantic->getName()];
-                        if (semanticUse.find(userSemantic->getIndex()) != semanticUse.end())
-                            overlappingUserSemantic.add({layoutDecor, userSemantic});
-                        else
-                            semanticUse.insert(userSemantic->getIndex());
-                    }
-                }
-            }
-        }
-
-        // Legalize all overlapping 'semantic info decorations'
-        for (auto decor : overlappingSemanticsDecor)
-        {
-            auto newOffset = _returnNonOverlappingAttributeIndex(
-                usedSemanticIndexSemanticDecor[decor->getSemanticName()]);
-            builder.addSemanticDecoration(
-                decor->getParent(),
-                decor->getSemanticName(),
-                (int)newOffset);
-            decor->removeAndDeallocate();
-        }
-        for (auto& varOffset : overlappingVarOffset)
-        {
-            auto newOffset = _returnNonOverlappingAttributeIndex(
-                usedSemanticIndexVarOffset[varOffset.attr->getResourceKind()]);
-            auto newVarOffset = builder.getVarOffsetAttr(
-                varOffset.attr->getResourceKind(),
-                newOffset,
-                varOffset.attr->getSpace());
-            oldLayoutDecorToNew[varOffset.layoutDecor] = _replaceAttributeOfLayout(
-                builder,
-                oldLayoutDecorToNew[varOffset.layoutDecor],
-                varOffset.attr,
-                newVarOffset);
-        }
-        for (auto& userSemantic : overlappingUserSemantic)
-        {
-            auto newOffset = _returnNonOverlappingAttributeIndex(
-                usedSemanticIndexUserSemantic[userSemantic.attr->getName()]);
-            auto newUserSemantic =
-                builder.getUserSemanticAttr(userSemantic.attr->getName(), newOffset);
-            oldLayoutDecorToNew[userSemantic.layoutDecor] = _replaceAttributeOfLayout(
-                builder,
-                oldLayoutDecorToNew[userSemantic.layoutDecor],
-                userSemantic.attr,
-                newUserSemantic);
-        }
-    }
-
-    // Recursively collect every `IRStructType` referenced by `type`, descending
-    // through operands so element types of pointers/arrays and the field types
-    // of nested structs are covered too.
-    void collectReachableStructsFromType(
-        IRInst* type,
-        HashSet<IRInst*>& visitedTypes,
-        OrderedHashSet<IRStructType*>& reachableStructs)
-    {
-        if (!type || !visitedTypes.add(type))
-            return;
-        if (auto structType = as<IRStructType>(type))
-            reachableStructs.add(structType);
-        for (UInt i = 0; i < type->getOperandCount(); ++i)
-            collectReachableStructsFromType(type->getOperand(i), visitedTypes, reachableStructs);
-    }
-
-    // Returns true if any field of `structType` carries a user/SV_TARGET
-    // semantic. Gate on semantic-bearing decorations specifically: an
-    // `IRSemanticDecoration`, or a layout decoration that holds a
-    // user/system-value semantic attribute. Triggering on any
-    // `IRLayoutDecoration` would be too broad and could route structs with
-    // unrelated (e.g. offset-only) layout metadata into
-    // `fixFieldSemanticsOfFlatStruct`, which may rewrite non-semantic
-    // offsets/attributes.
-    bool structHasFieldSemantic(IRStructType* structType)
-    {
-        for (auto field : structType->getFields())
-        {
-            auto key = field->getKey();
-            if (key->findDecoration<IRSemanticDecoration>())
-                return true;
-            if (auto layoutDecor = key->findDecoration<IRLayoutDecoration>())
-            {
-                for (auto attr : layoutDecor->getLayout()->getAllAttrs())
-                {
-                    if (as<IRUserSemanticAttr>(attr) || as<IRSystemValueSemanticAttr>(attr))
-                        return true;
-                }
-            }
-        }
-        return false;
     }
 
     void wrapReturnValueInStruct(EntryPointInfo entryPoint)
@@ -4924,22 +4956,68 @@ void legalizeEntryPointVaryingParamsForWGSL(
     context.legalizeEntryPoints(entryPoints);
 }
 
-// Fix overlapping field semantics on structs reachable from the module's entry
-// points but not themselves entry-point parameters/return types (e.g. a struct
-// returned by a helper function the entry point calls). Run as its own pass,
-// separately from entry-point varying-parameter legalization, so the entry-point
-// legalization functions stay focused on the entry points themselves.
-// (See issue #10802.)
-void legalizeReachableStructVaryingSemanticsForMetal(IRModule* module, DiagnosticSink* sink)
+// Dedicated context for the struct-field-semantic legalization pass. It is
+// intentionally separate from `Legalize{Metal,WGSL}EntryPointContext`, which
+// handle entry points themselves rather than the structs used by functions the
+// entry points call. Only the target-specific user-semantic naming differs, so
+// each backend just overrides `getUserSemanticNameSlice`.
+class LegalizeMetalVaryingStructContext : public LegalizeShaderVaryingStructContext
 {
-    LegalizeMetalEntryPointContext context(module, sink);
-    context.fixVaryingSemanticsOfEntryPointReachableStructs();
+public:
+    LegalizeMetalVaryingStructContext(IRModule* module, DiagnosticSink* sink)
+        : LegalizeShaderVaryingStructContext(module, sink)
+    {
+    }
+
+protected:
+    UnownedStringSlice getUserSemanticNameSlice(String& loweredName, bool isUserSemantic)
+        const SLANG_OVERRIDE
+    {
+        SLANG_UNUSED(isUserSemantic);
+        return loweredName.getUnownedSlice();
+    }
+};
+
+class LegalizeWGSLVaryingStructContext : public LegalizeShaderVaryingStructContext
+{
+public:
+    LegalizeWGSLVaryingStructContext(IRModule* module, DiagnosticSink* sink)
+        : LegalizeShaderVaryingStructContext(module, sink)
+    {
+    }
+
+protected:
+    UnownedStringSlice getUserSemanticNameSlice(String& loweredName, bool isUserSemantic)
+        const SLANG_OVERRIDE
+    {
+        return isUserSemantic ? userSemanticName : loweredName.getUnownedSlice();
+    }
+
+    const UnownedStringSlice userSemanticName = toSlice("user_semantic");
+};
+
+// Fix overlapping field semantics on structs used by functions reachable from
+// the module's entry points but not themselves entry-point parameters/return
+// types (e.g. a struct returned by a helper function the entry point calls).
+// Run as its own pass, separately from entry-point varying-parameter
+// legalization, so the entry-point legalization functions stay focused on the
+// entry points themselves. (See issue #10802.)
+void legalizeStructVaryingSemanticsForMetal(
+    IRModule* module,
+    DiagnosticSink* sink,
+    List<EntryPointInfo>& entryPoints)
+{
+    LegalizeMetalVaryingStructContext context(module, sink);
+    context.legalizeVaryingStructTypes(entryPoints);
 }
 
-void legalizeReachableStructVaryingSemanticsForWGSL(IRModule* module, DiagnosticSink* sink)
+void legalizeStructVaryingSemanticsForWGSL(
+    IRModule* module,
+    DiagnosticSink* sink,
+    List<EntryPointInfo>& entryPoints)
 {
-    LegalizeWGSLEntryPointContext context(module, sink);
-    context.fixVaryingSemanticsOfEntryPointReachableStructs();
+    LegalizeWGSLVaryingStructContext context(module, sink);
+    context.legalizeVaryingStructTypes(entryPoints);
 }
 
 } // namespace Slang

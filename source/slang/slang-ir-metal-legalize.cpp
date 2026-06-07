@@ -418,7 +418,7 @@ void legalizeIRForMetal(IRModule* module, TargetProgram* targetProgram, Diagnost
 
     // Fix duplicate [[color]] on structs reachable from the entry points that
     // are not themselves entry-point parameters/return types. (See issue #10802.)
-    legalizeReachableStructVaryingSemanticsForMetal(module, sink);
+    legalizeStructVaryingSemanticsForMetal(module, sink, entryPoints);
 
     processInst(module->getModuleInst(), targetProgram, sink);
 }

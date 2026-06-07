@@ -38,12 +38,18 @@ void legalizeEntryPointVaryingParamsForWGSL(
     List<EntryPointInfo>& entryPoints);
 
 // Fix overlapping field semantics (e.g. duplicate SV_TARGET -> @location) on
-// structs reachable from the module's entry points that are not themselves
-// entry-point parameters/return types. Run as a standalone pass, separate from
-// entry-point varying-parameter legalization. (See issue #10802.)
-void legalizeReachableStructVaryingSemanticsForMetal(IRModule* module, DiagnosticSink* sink);
+// structs used by functions reachable from the given entry points but not
+// themselves entry-point parameters/return types. Run as a standalone pass,
+// separate from entry-point varying-parameter legalization. (See issue #10802.)
+void legalizeStructVaryingSemanticsForMetal(
+    IRModule* module,
+    DiagnosticSink* sink,
+    List<EntryPointInfo>& entryPoints);
 
-void legalizeReachableStructVaryingSemanticsForWGSL(IRModule* module, DiagnosticSink* sink);
+void legalizeStructVaryingSemanticsForWGSL(
+    IRModule* module,
+    DiagnosticSink* sink,
+    List<EntryPointInfo>& entryPoints);
 
 void depointerizeInputParams(IRFunc* entryPoint);
 
