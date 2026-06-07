@@ -2533,9 +2533,12 @@ protected:
         }
         if (changed)
         {
+            // `layoutDecor` is removed and deallocated here, so return the
+            // replacement decoration rather than the freed original — callers
+            // immediately dereference the returned pointer.
             auto parent = layoutDecor->parent;
             layoutDecor->removeAndDeallocate();
-            builder.addLayoutDecoration(parent, builder.getVarLayout(layoutOps));
+            return builder.addLayoutDecoration(parent, builder.getVarLayout(layoutOps));
         }
         return layoutDecor;
     }
