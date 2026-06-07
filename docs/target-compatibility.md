@@ -36,7 +36,7 @@ Items with ^ means there is some discussion about support later in the document 
 | [tex.Load](#tex-load)                                         | Yes   | Yes       | Yes     | Limited ^      | Yes   | Yes       |
 | [Full bool](#full-bool)                                       | Yes   | Yes       | Yes     | No             | Yes   | Yes ^     |
 | [Mesh Shader](#mesh-shader)                                   | No    | Yes       | Yes     | No             | Yes   | No        |
-| [`[unroll]`](#unroll]                                         | Yes   | Yes       | Yes ^   | Yes            | No ^  | Limited + |
+| [`[unroll]`](#unroll)                                         | Yes   | Yes       | Yes ^   | Yes            | No ^  | Limited + |
 | Atomics                                                       | Yes   | Yes       | Yes     | Yes            | Yes   | No +      |
 | [Atomics on RWBuffer](#rwbuffer-atomics)                      | Yes   | Yes       | Yes     | No             | Yes   | No +      |
 | [Sampler Feedback](#sampler-feedback)                         | No    | Yes       | No +    | No             | No    | Yes ^     |
