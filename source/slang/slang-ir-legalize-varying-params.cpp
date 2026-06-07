@@ -4970,8 +4970,8 @@ public:
     }
 
 protected:
-    UnownedStringSlice getUserSemanticNameSlice(String& loweredName, bool isUserSemantic)
-        const SLANG_OVERRIDE
+    UnownedStringSlice getUserSemanticNameSlice(String& loweredName, bool isUserSemantic) const
+        SLANG_OVERRIDE
     {
         SLANG_UNUSED(isUserSemantic);
         return loweredName.getUnownedSlice();
@@ -4987,8 +4987,8 @@ public:
     }
 
 protected:
-    UnownedStringSlice getUserSemanticNameSlice(String& loweredName, bool isUserSemantic)
-        const SLANG_OVERRIDE
+    UnownedStringSlice getUserSemanticNameSlice(String& loweredName, bool isUserSemantic) const
+        SLANG_OVERRIDE
     {
         return isUserSemantic ? userSemanticName : loweredName.getUnownedSlice();
     }
