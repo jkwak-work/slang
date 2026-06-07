@@ -4913,10 +4913,6 @@ void legalizeEntryPointVaryingParamsForMetal(
     }
     LegalizeMetalEntryPointContext context(module, sink);
     context.legalizeEntryPoints(entryPoints);
-    // Separately from entry-point legalization, fix overlapping field semantics
-    // on structs reachable from the entry points (e.g. helper-function return
-    // structs) so they do not emit duplicate `[[color(0)]]`. (See issue #10802.)
-    context.fixVaryingSemanticsOfEntryPointReachableStructs();
 }
 
 void legalizeEntryPointVaryingParamsForWGSL(
@@ -4926,9 +4922,23 @@ void legalizeEntryPointVaryingParamsForWGSL(
 {
     LegalizeWGSLEntryPointContext context(module, sink);
     context.legalizeEntryPoints(entryPoints);
-    // Separately from entry-point legalization, fix overlapping field semantics
-    // on structs reachable from the entry points (e.g. helper-function return
-    // structs) so they do not emit duplicate `@location(0)`. (See issue #10802.)
+}
+
+// Fix overlapping field semantics on structs reachable from the module's entry
+// points but not themselves entry-point parameters/return types (e.g. a struct
+// returned by a helper function the entry point calls). Run as its own pass,
+// separately from entry-point varying-parameter legalization, so the entry-point
+// legalization functions stay focused on the entry points themselves.
+// (See issue #10802.)
+void legalizeReachableStructVaryingSemanticsForMetal(IRModule* module, DiagnosticSink* sink)
+{
+    LegalizeMetalEntryPointContext context(module, sink);
+    context.fixVaryingSemanticsOfEntryPointReachableStructs();
+}
+
+void legalizeReachableStructVaryingSemanticsForWGSL(IRModule* module, DiagnosticSink* sink)
+{
+    LegalizeWGSLEntryPointContext context(module, sink);
     context.fixVaryingSemanticsOfEntryPointReachableStructs();
 }
 
