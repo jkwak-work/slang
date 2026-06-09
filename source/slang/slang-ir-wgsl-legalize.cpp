@@ -234,7 +234,7 @@ void legalizeIRForWGSL(IRModule* module, TargetProgram* targetProgram, Diagnosti
 
     // Fix duplicate @location on structs reachable from the entry points that
     // are not themselves entry-point parameters/return types. (See issue #10802.)
-    legalizeStructVaryingSemanticsForWGSL(module, sink, entryPoints);
+    legalizeStructVaryingSemanticsForWGSL(module, entryPoints, sink);
 
     // Go through every instruction in the module and legalize them as needed.
     processInst(module->getModuleInst(), targetProgram, sink);

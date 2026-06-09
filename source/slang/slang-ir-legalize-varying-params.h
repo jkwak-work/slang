@@ -43,13 +43,13 @@ void legalizeEntryPointVaryingParamsForWGSL(
 // separate from entry-point varying-parameter legalization. (See issue #10802.)
 void legalizeStructVaryingSemanticsForMetal(
     IRModule* module,
-    DiagnosticSink* sink,
-    List<EntryPointInfo>& entryPoints);
+    List<EntryPointInfo>& entryPoints,
+    DiagnosticSink* sink);
 
 void legalizeStructVaryingSemanticsForWGSL(
     IRModule* module,
-    DiagnosticSink* sink,
-    List<EntryPointInfo>& entryPoints);
+    List<EntryPointInfo>& entryPoints,
+    DiagnosticSink* sink);
 
 void depointerizeInputParams(IRFunc* entryPoint);
 

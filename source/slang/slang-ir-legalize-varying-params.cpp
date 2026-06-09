@@ -5007,8 +5007,8 @@ protected:
 // entry points themselves. (See issue #10802.)
 void legalizeStructVaryingSemanticsForMetal(
     IRModule* module,
-    DiagnosticSink* sink,
-    List<EntryPointInfo>& entryPoints)
+    List<EntryPointInfo>& entryPoints,
+    DiagnosticSink* sink)
 {
     LegalizeMetalVaryingStructContext context(module, sink);
     context.legalizeVaryingStructTypes(entryPoints);
@@ -5016,8 +5016,8 @@ void legalizeStructVaryingSemanticsForMetal(
 
 void legalizeStructVaryingSemanticsForWGSL(
     IRModule* module,
-    DiagnosticSink* sink,
-    List<EntryPointInfo>& entryPoints)
+    List<EntryPointInfo>& entryPoints,
+    DiagnosticSink* sink)
 {
     LegalizeWGSLVaryingStructContext context(module, sink);
     context.legalizeVaryingStructTypes(entryPoints);
