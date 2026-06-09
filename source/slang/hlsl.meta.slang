@@ -448,11 +448,16 @@ struct ByteAddressBuffer
 
     /// Load a value with type `T` from the buffer at the specified location.
     ///@param T The type of the value to load from the buffer.
-    ///@param location The input address in bytes, which must be a multiple of 4.
+    ///@param location The input address in bytes, which must be a multiple of the
+    /// alignment of `T`'s scalar components (for example 2 for `half`/`uint16_t`,
+    /// 4 for 32-bit scalars, 8 for 64-bit scalars).
     ///@return The value loaded from the buffer.
     ///@remarks
-    /// This overload does not assume alignment beyond 4 bytes and may be lowered to scalar 4-byte loads.
-    /// Use `LoadAligned<T>` when `location` has a stronger alignment guarantee.
+    /// This overload makes no alignment promise beyond the scalar-component alignment
+    /// of `T`. Unless the compiler can prove `location` covers the whole `T` (for
+    /// example a constant, sufficiently aligned offset), the access is lowered to
+    /// per-component loads. Use `LoadAligned<T>` to promise a stronger alignment and
+    /// request a single wide load.
     [__readNone]
     [ForceInline]
     [require(cpp_cuda_glsl_hlsl_metal_spirv_wgsl_llvm, byteaddressbuffer)]
@@ -461,14 +466,24 @@ struct ByteAddressBuffer
         return __byteAddressBufferLoad<T>(this, location, 0);
     }
 
-    /// Load a value with type `T` from the buffer at the specified location with a known alignment.
+    /// Load a value with type `T` from the buffer at the specified location, promising
+    /// that `location` is aligned to `alignment` bytes so the compiler can issue a
+    /// single wide load instead of per-component loads.
     ///@param T The type of the value to load from the buffer.
-    ///@param location The input address in bytes, which must be a multiple of 4.
-    ///@param alignment The known alignment of `location`, which must be a multiple of 4 and compatible with `T`.
+    ///@param location The input address in bytes, which must be a multiple of the
+    /// scalar-component size of `T`.
+    ///@param alignment The known alignment of `location` in bytes. It must be a
+    /// multiple of `T`'s scalar-component alignment; a smaller value is reported as
+    /// error 41300.
     ///@return The value loaded from the buffer.
     ///@remarks
-    /// On HLSL, `alignment` is informational only and does not affect the emitted intrinsic.
-    /// On other targets, `alignment` is forwarded to the lowered load instruction.
+    /// When `alignment` covers the whole `T` (for example 8 for `half4`), a single
+    /// wide load is emitted. When `alignment` only satisfies the scalar-component
+    /// alignment but not the full `T` (for example 2 for `half4`), the access falls
+    /// back to per-component loads — the same lowering as `Load<T>`. Only an
+    /// `alignment` (or `location`) below the scalar-component alignment is an error.
+    /// On HLSL the value is informational and does not change the emitted intrinsic;
+    /// on other targets it is forwarded to the lowered load instruction.
     [__readNone]
     [ForceInline]
     [require(cpp_cuda_glsl_hlsl_metal_spirv_wgsl_llvm, byteaddressbuffer)]
@@ -6364,11 +6379,16 @@ struct $(item.name)
 
     /// Load a value with type `T` from the buffer at the specified location.
     ///@param T The type of the value to load from the buffer.
-    ///@param location The input address in bytes, which must be a multiple of 4.
+    ///@param location The input address in bytes, which must be a multiple of the
+    /// alignment of `T`'s scalar components (for example 2 for `half`/`uint16_t`,
+    /// 4 for 32-bit scalars, 8 for 64-bit scalars).
     ///@return The value loaded from the buffer.
     ///@remarks
-    /// This overload does not assume alignment beyond 4 bytes and may be lowered to scalar 4-byte loads.
-    /// Use `LoadAligned<T>` when `location` has a stronger alignment guarantee.
+    /// This overload makes no alignment promise beyond the scalar-component alignment
+    /// of `T`. Unless the compiler can prove `location` covers the whole `T` (for
+    /// example a constant, sufficiently aligned offset), the access is lowered to
+    /// per-component loads. Use `LoadAligned<T>` to promise a stronger alignment and
+    /// request a single wide load.
     [__NoSideEffect]
     [ForceInline]
     [require(cpp_cuda_glsl_hlsl_metal_spirv_wgsl_llvm, byteaddressbuffer_rw)]
@@ -6377,14 +6397,24 @@ struct $(item.name)
         return __byteAddressBufferLoad<T>(this, location, 0);
     }
 
-    /// Load a value with type `T` from the buffer at the specified location with a known alignment.
+    /// Load a value with type `T` from the buffer at the specified location, promising
+    /// that `location` is aligned to `alignment` bytes so the compiler can issue a
+    /// single wide load instead of per-component loads.
     ///@param T The type of the value to load from the buffer.
-    ///@param location The input address in bytes, which must be a multiple of 4.
-    ///@param alignment The known alignment of `location`, which must be a multiple of 4 and compatible with `T`.
+    ///@param location The input address in bytes, which must be a multiple of the
+    /// scalar-component size of `T`.
+    ///@param alignment The known alignment of `location` in bytes. It must be a
+    /// multiple of `T`'s scalar-component alignment; a smaller value is reported as
+    /// error 41300.
     ///@return The value loaded from the buffer.
     ///@remarks
-    /// On HLSL, `alignment` is informational only and does not affect the emitted intrinsic.
-    /// On other targets, `alignment` is forwarded to the lowered load instruction.
+    /// When `alignment` covers the whole `T` (for example 8 for `half4`), a single
+    /// wide load is emitted. When `alignment` only satisfies the scalar-component
+    /// alignment but not the full `T` (for example 2 for `half4`), the access falls
+    /// back to per-component loads — the same lowering as `Load<T>`. Only an
+    /// `alignment` (or `location`) below the scalar-component alignment is an error.
+    /// On HLSL the value is informational and does not change the emitted intrinsic;
+    /// on other targets it is forwarded to the lowered load instruction.
     [__NoSideEffect]
     [ForceInline]
     [require(cpp_cuda_glsl_hlsl_metal_spirv_wgsl_llvm, byteaddressbuffer_rw)]
