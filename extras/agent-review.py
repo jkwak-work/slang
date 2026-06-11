@@ -1307,8 +1307,16 @@ class AgentReview:
                     continue
                 if agent_re.search(body):
                     continue
-                created = str(item.get("submitted_at") if kind == "review" else item.get("created_at") or "")
-                updated = str(item.get("submitted_at") if kind == "review" else item.get("updated_at") or "")
+                created = (
+                    str(item.get("submitted_at") or "")
+                    if kind == "review"
+                    else str(item.get("created_at") or "")
+                )
+                updated = (
+                    str(item.get("submitted_at") or "")
+                    if kind == "review"
+                    else str(item.get("updated_at") or "")
+                )
                 events.append(
                     {
                         "id": f"{prefix}:{item.get('id')}",
