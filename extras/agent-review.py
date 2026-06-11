@@ -190,6 +190,8 @@ class AgentReview:
         self.next_poll_seconds = self.poll_seconds
         self.state_changed = False
         self.status_line_active = False
+        self.startup_resolve_seeded = False
+        self.pending_resolve_urls: set[str] = set()
 
         self.agent_ready_pattern = self.translate_posix_regex(
             os.environ.get("AGENT_READY_PATTERN", self.default_agent_ready_pattern())
@@ -566,6 +568,23 @@ class AgentReview:
         self.state_changed = True
         return True
 
+    def queue_resolve_request(self, url: str) -> bool:
+        if url in self.pending_resolve_urls:
+            return False
+        self.pending_resolve_urls.add(url)
+        return True
+
+    def queue_startup_resolve_requests(self) -> None:
+        if self.startup_resolve_seeded:
+            return
+        self.startup_resolve_seeded = True
+        queued = 0
+        for row in self.rows:
+            for url in row.urls:
+                queued += int(self.queue_resolve_request(url))
+        if queued:
+            self.log(f"queued startup {RESOLVE_COMMENTS_SKILL} prompt for {queued} tracked PR(s)")
+
     def remove_url_from_rows(self, url: str) -> None:
         changed = False
         for row in self.rows:
@@ -573,6 +592,7 @@ class AgentReview:
                 row.urls = [candidate for candidate in row.urls if candidate != url]
                 changed = True
         if changed:
+            self.pending_resolve_urls.discard(url)
             self.rows = [row for row in self.rows if row.urls]
             self.state_changed = True
             self.log(f"removed {url} from state")
@@ -1000,6 +1020,8 @@ class AgentReview:
             is_new_url = True
             self.log(f"tracking {pr.url} in {worktree} session={row.session}")
         self.ensure_agent_target(row.session, row.path)
+        if is_new_url and self.startup_resolve_seeded and self.queue_resolve_request(pr.url):
+            self.log(f"queued {RESOLVE_COMMENTS_SKILL} prompt for newly tracked {pr.url}")
 
     def tmux_session_exists(self, session: str) -> bool:
         return self.run_cmd(["tmux", "has-session", "-t", f"={session}"]).returncode == 0
@@ -1491,7 +1513,7 @@ class AgentReview:
         if self.maybe_approve_prompt(target, text):
             self.next_poll_seconds = min(self.next_poll_seconds, self.poll_action_seconds)
             return None, None
-        if not self.target_screen_is_idle(target, text):
+        if not started and not self.target_screen_is_idle(target, text):
             self.next_poll_seconds = min(self.next_poll_seconds, self.poll_active_seconds)
             return None, None
         return target, text
@@ -1521,6 +1543,8 @@ class AgentReview:
                 self.log(f"stopped tracking {url}: it is no longer assigned to {self.viewer_login} with label {self.copilot_label}")
                 self.remove_url_from_rows(url)
                 continue
+            if url in self.pending_resolve_urls:
+                dispatch_needed = True
 
             new_events, all_events = self.new_events_for_url(url)
             if new_events and all_events is not None:
@@ -1547,6 +1571,8 @@ class AgentReview:
                 self.mark_events_seen(url, events)
             for url, signature in ci_signatures_to_mark.items():
                 self.ci_signature_file_for_url(url).write_text(signature + "\n")
+            for url in urls_for_prompt:
+                self.pending_resolve_urls.discard(url)
             self.next_poll_seconds = min(self.next_poll_seconds, self.poll_action_seconds)
             self.log(f"sent {RESOLVE_COMMENTS_SKILL} prompt for {', '.join(urls_for_prompt)} to {target}")
         else:
@@ -1749,6 +1775,7 @@ class AgentReview:
         discovered = self.discover_prs()
         for pr in discovered:
             self.upsert_discovered_pr(pr)
+        self.queue_startup_resolve_requests()
         if self.state_changed:
             self.save_state()
         if self.dry_run:

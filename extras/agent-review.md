@@ -10,6 +10,11 @@ from other people are setup inputs only: the watcher creates a suffixed local cl
 `branch-name-externalowner-pr123-jkwak-work`, asks the agent to create a PR on `@me/slang`, and
 waits for that clone PR to be discovered and tracked.
 
+On each script start, after the discovery pass has updated `agent-review.conf`, the watcher queues
+one `slang-pr-resolve-comments --single-pass` prompt for every tracked PR URL. This makes existing
+agents inspect pre-existing review comments immediately even when the local seen-comment cache has
+no new event to report.
+
 Keep the Mermaid flows in this document updated as the primary behavior contract whenever the
 script behavior changes.
 
@@ -63,7 +68,8 @@ flowchart TD
     B -- no --> D["Skip bot PR assignment"]
     C --> E["Run Discovery Flow"]
     D --> E
-    E --> F["Run Monitor Flow"]
+    E --> EA["Queue startup resolve prompts once per script run for tracked PR URLs"]
+    EA --> F["Run Monitor Flow"]
     F --> G{"`--once`?"}
     G -- yes --> H["Exit"]
     G -- no --> I["Sleep until next poll"]
@@ -130,7 +136,7 @@ flowchart TD
     L -- no --> Z
     L -- yes --> M
     J -- yes --> M["Fetch issue comments, review comments, reviews, and CI checks"]
-    M --> N{"New non-agent comment/review event?\nFirst observation counts existing events"}
+    M --> N{"Startup resolve pending\nor new non-agent comment/review event?\nFirst observation counts existing events"}
     N -- yes --> P["Mark dispatch pending"]
     N -- no --> O{"Failing/canceled CI present or changed?"}
     O -- yes --> P
@@ -145,7 +151,13 @@ flowchart TD
 ```
 
 The idle check is intentionally conservative: a pane is idle only after the captured screen matches
-the previous poll. This avoids sending a new task while the agent is still streaming or editing.
+the previous poll, except for a just-started agent that has already reached its ready prompt. This
+avoids sending a new task while the agent is still streaming or editing.
+
+On each process start, the watcher queues a one-time `slang-pr-resolve-comments --single-pass`
+dispatch for every tracked PR URL after discovery. Newly tracked owned PR URLs discovered later in a
+long-running process are also queued once.
+
 When a tracked PR has no cached comment state yet, existing non-agent comments and reviews count as
 new and dispatch `slang-pr-resolve-comments --single-pass`. When a tracked PR has no cached CI
 state yet, existing failing or canceled checks also dispatch the same prompt.
