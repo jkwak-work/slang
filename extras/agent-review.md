@@ -100,7 +100,7 @@ flowchart TD
     R -- no --> V["Do not write external PR URL to `agent-review.conf`"]
     S --> T["Ensure tmux session named after the directory"]
     V --> T
-    T --> U["First tmux window runs selected agent in the worktree\nwith yolo flags when enabled"]
+    T --> U["First tmux window runs selected agent in the worktree\nCodex includes `--sandbox danger-full-access`\nyolo adds permission-bypass flags when enabled"]
     U --> W["Configure tmux default command so new windows start in the worktree"]
     W --> X{"Head owner is @me?"}
     X -- yes --> Y["Discovery complete for this PR"]
@@ -201,6 +201,10 @@ Command-line options:
                             App and [bot] login spellings are normalized.
 --issue-limit N             Open assigned issue limit per repository. Defaults to DISCOVERY_LIMIT.
 ```
+
+Codex launch commands always include `--sandbox danger-full-access`. If `--agent-flags` or
+`AGENT_FLAGS` also contains `--sandbox`, `--sandbox=...`, or `-s`, the script replaces that setting
+with `danger-full-access`.
 
 `--yolo` maps to `--dangerously-bypass-approvals-and-sandbox` for Codex and
 `--dangerously-skip-permissions` for Claude. It only affects agent launch commands; it does not

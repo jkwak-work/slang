@@ -1090,11 +1090,35 @@ class AgentReview:
         flags = self.agent_flags.strip()
         if flags:
             parts.append(flags)
-        yolo_flag = self.yolo_flag_for_selected_agent()
         launch = " ".join(parts).strip()
+        launch = self.ensure_default_flags_for_selected_agent(launch)
+        yolo_flag = self.yolo_flag_for_selected_agent()
         if self.agent_yolo and yolo_flag and yolo_flag not in shlex.split(launch):
             launch = f"{launch} {yolo_flag}".strip()
         return launch
+
+    def ensure_default_flags_for_selected_agent(self, launch: str) -> str:
+        if self.selected_agent_kind() != "codex":
+            return launch
+        return self.ensure_codex_sandbox_flag(launch)
+
+    @staticmethod
+    def ensure_codex_sandbox_flag(launch: str) -> str:
+        args = shlex.split(launch)
+        filtered: list[str] = []
+        skip_next = False
+        for arg in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg in {"--sandbox", "-s"}:
+                skip_next = True
+                continue
+            if arg.startswith("--sandbox=") or arg.startswith("-s="):
+                continue
+            filtered.append(arg)
+        filtered.extend(["--sandbox", "danger-full-access"])
+        return shlex.join(filtered)
 
     def yolo_flag_for_selected_agent(self) -> str:
         kind = self.selected_agent_kind()
