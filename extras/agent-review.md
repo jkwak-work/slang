@@ -18,6 +18,7 @@ script behavior changes.
 ```bash
 extras/agent-review.py --agent codex
 extras/agent-review.py --agent claude
+extras/agent-review.py --yolo
 extras/agent-review.py --once --dry-run --no-submodules
 extras/agent-review.py --assign-bot-prs
 ```
@@ -83,7 +84,7 @@ flowchart TD
     R -- no --> V["Do not write external PR URL to `agent-review.conf`"]
     S --> T["Ensure tmux session named after the directory"]
     V --> T
-    T --> U["First tmux window runs selected agent in the worktree"]
+    T --> U["First tmux window runs selected agent in the worktree\nwith yolo flags when enabled"]
     U --> W["Configure tmux default command so new windows start in the worktree"]
     W --> X{"Head owner is @me?"}
     X -- yes --> Y["Discovery complete for this PR"]
@@ -162,6 +163,7 @@ Command-line options:
 ```text
 --agent {codex,claude}      Agent CLI to start in tmux. Defaults to codex.
 --agent-flags TEXT          Extra flags appended to the agent launch command.
+--yolo                      Launch agents with permission-bypass flags.
 --repo OWNER/REPO           Repository to scan. Repeatable. Overrides the default repo pair.
 --label LABEL               Label to require. Defaults to CoPilot.
 --limit N                   PR discovery limit per repository. Defaults to 100.
@@ -175,6 +177,10 @@ Command-line options:
 --issue-limit N             Open assigned issue limit per repository. Defaults to DISCOVERY_LIMIT.
 ```
 
+`--yolo` maps to `--dangerously-bypass-approvals-and-sandbox` for Codex and
+`--dangerously-skip-permissions` for Claude. It only affects agent launch commands; it does not
+change GitHub discovery, worktree creation, tmux state tracking, or bot-PR assignment mode.
+
 Environment overrides:
 
 ```text
@@ -182,6 +188,7 @@ GH_COMMAND                  GitHub CLI command.
 GIT_COMMAND                 Git command.
 AGENT_COMMAND               Agent command, normally codex or claude.
 AGENT_FLAGS                 Extra flags for the agent command.
+AGENT_YOLO                  Set true to enable permission-bypass agent launch flags.
 AGENT_SKILL_PREFIX          Prefix before skill names.
 AGENT_READY_PATTERN         Regex for agent readiness detection.
 AGENT_APPROVAL_PATTERN      Regex for permission/trust prompts.

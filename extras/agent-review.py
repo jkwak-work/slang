@@ -156,6 +156,7 @@ class AgentReview:
         self.git_command = os.environ.get("GIT_COMMAND", default_host_command("git"))
         self.agent_command = os.environ.get("AGENT_COMMAND", "codex")
         self.agent_flags = os.environ.get("AGENT_FLAGS", "")
+        self.agent_yolo = os.environ.get("AGENT_YOLO", "false").lower() in {"1", "true", "yes", "on"}
         self.agent_skill_prefix = os.environ.get("AGENT_SKILL_PREFIX", "")
         self.agent_window_name = os.environ.get("AGENT_WINDOW_NAME", "agent")
 
@@ -395,6 +396,11 @@ class AgentReview:
         )
         parser.add_argument("--agent", choices=["codex", "claude"], default=None)
         parser.add_argument("--agent-flags", default=None)
+        parser.add_argument(
+            "--yolo",
+            action="store_true",
+            help="launch agents with the selected CLI's permission-bypass flag",
+        )
         parser.add_argument("--repo", action="append", default=None, metavar="OWNER/REPO")
         parser.add_argument("--label", default=None)
         parser.add_argument("--limit", type=int, default=None, metavar="N")
@@ -417,6 +423,8 @@ class AgentReview:
             self.agent_ready_pattern = self.translate_posix_regex(self.default_agent_ready_pattern())
         if args.agent_flags is not None:
             self.agent_flags = args.agent_flags
+        if args.yolo:
+            self.agent_yolo = True
         if args.label:
             self.copilot_label = args.label
         if args.limit is not None:
@@ -1060,7 +1068,23 @@ class AgentReview:
         self.idle_screen_results = {}
 
     def agent_launch_command(self) -> str:
-        return f"{self.agent_command} {self.agent_flags}".strip()
+        parts = [self.agent_command]
+        flags = self.agent_flags.strip()
+        if flags:
+            parts.append(flags)
+        yolo_flag = self.yolo_flag_for_selected_agent()
+        launch = " ".join(parts).strip()
+        if self.agent_yolo and yolo_flag and yolo_flag not in shlex.split(launch):
+            launch = f"{launch} {yolo_flag}".strip()
+        return launch
+
+    def yolo_flag_for_selected_agent(self) -> str:
+        kind = self.selected_agent_kind()
+        if kind == "codex":
+            return "--dangerously-bypass-approvals-and-sandbox"
+        if kind == "claude":
+            return "--dangerously-skip-permissions"
+        return ""
 
     def shell_command_for_worktree(self, worktree: str) -> str:
         shell = os.environ.get("SHELL", "/bin/bash")
