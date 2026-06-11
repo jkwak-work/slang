@@ -1,5 +1,5 @@
 //TEST:SIMPLE(filecheck=GLSL): -target glsl
-//TEST:SIMPLE(filecheck=SPIRV): -target spirv
+//TEST:SIMPLE(filecheck=SPIRV): -target spirv -no-share-front-end-ir
 // NOTE: Validates target-specific specialization ID/local size emission in
 // generated GLSL/SPIR-V text output.
 

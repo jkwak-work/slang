@@ -62,6 +62,8 @@ using namespace Slang;
 
 // Constants for slang-test specific options
 static const char* kPreserveEmbeddedSourceOption = "-preserve-embedded-source";
+// Per-test opt-out for broad `slang-test -share-front-end-ir` runs; not passed to slangc.
+static const char* kNoShareFrontEndIROption = "-no-share-front-end-ir";
 
 // Options for a particular test
 struct TestOptions
@@ -2657,6 +2659,9 @@ static bool _shouldShareFrontEndIR(TestContext* context, const TestInput& input)
     if (input.testOptions->getDiagTestPrefix(diagPrefix))
         return false;
 
+    if (input.testOptions->args.indexOf(kNoShareFrontEndIROption) != Index(-1))
+        return false;
+
     switch (context->getFinalSpawnType(input.spawnType))
     {
     case SpawnType::UseSharedLibrary:
@@ -2692,7 +2697,7 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
     for (auto arg : input.testOptions->args)
     {
         // Filter out slang-test specific options that shouldn't be passed to slangc
-        if (arg == kPreserveEmbeddedSourceOption)
+        if (arg == kPreserveEmbeddedSourceOption || arg == kNoShareFrontEndIROption)
             continue;
         cmdLine.addArg(arg);
     }
@@ -2768,6 +2773,8 @@ TestResult runSimpleLineTest(TestContext* context, TestInput& input)
 
     for (auto arg : input.testOptions->args)
     {
+        if (arg == kNoShareFrontEndIROption)
+            continue;
         cmdLine.addArg(arg);
     }
 

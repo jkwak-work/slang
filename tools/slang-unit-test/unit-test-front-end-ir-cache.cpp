@@ -7,8 +7,8 @@
 // artifacts are byte-identical whether the IR is recomputed from scratch or loaded from the
 // cache, including across different targets sharing one front-end result.
 
-#include "../../source/core/slang-io.h"
-#include "../../source/slang/slang-internal.h"
+#include "core/slang-io.h"
+#include "slang/slang-internal.h"
 #include "slang-com-ptr.h"
 #include "slang.h"
 #include "unit-test/slang-unit-test.h"

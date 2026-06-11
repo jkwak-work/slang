@@ -1,6 +1,6 @@
 //TEST:SIMPLE(filecheck=HLSL): -target hlsl -line-directive-mode none -entry computeMain -stage compute
 //TEST:SIMPLE(filecheck=CUDA): -target cuda -line-directive-mode none
-//TEST:SIMPLE(filecheck=TORCH): -target torch -line-directive-mode none
+//TEST:SIMPLE(filecheck=TORCH): -target torch -line-directive-mode none -no-share-front-end-ir
 
 //TEST_INPUT:ubuffer(data=[0 0 0 0 0], stride=4):out,name=outputBuffer
 RWStructuredBuffer<float> outputBuffer;
