@@ -130,9 +130,9 @@ flowchart TD
     L -- no --> Z
     L -- yes --> M
     J -- yes --> M["Fetch issue comments, review comments, reviews, and CI checks"]
-    M --> N{"New non-agent comment/review event?"}
+    M --> N{"New non-agent comment/review event?\nFirst observation counts existing events"}
     N -- yes --> P["Mark dispatch pending"]
-    N -- no --> O{"Failing/canceled CI signature changed?"}
+    N -- no --> O{"Failing/canceled CI present or changed?"}
     O -- yes --> P
     O -- no --> Q["Record passing or pending CI signature changes without dispatch"]
     P --> R["Send `<prefix>slang-pr-resolve-comments --single-pass <url...>`"]
@@ -146,6 +146,9 @@ flowchart TD
 
 The idle check is intentionally conservative: a pane is idle only after the captured screen matches
 the previous poll. This avoids sending a new task while the agent is still streaming or editing.
+When a tracked PR has no cached comment state yet, existing non-agent comments and reviews count as
+new and dispatch `slang-pr-resolve-comments --single-pass`. When a tracked PR has no cached CI
+state yet, existing failing or canceled checks also dispatch the same prompt.
 
 ## Bot PR Assignee Flow
 
@@ -225,8 +228,6 @@ AGENT_SHELL_COMMAND_PATTERN Regex for shell commands that may be replaced by an 
 POLL_SECONDS                Quiet poll interval.
 POLL_ACTIVE_SECONDS         Poll interval while an agent is active.
 POLL_ACTION_SECONDS         Poll interval after sending input.
-BOOTSTRAP_MODE              `prime` or `trigger` for existing comments. Defaults to prime.
-CI_BOOTSTRAP_MODE           `prime` or `trigger` for existing CI failures. Defaults to BOOTSTRAP_MODE.
 WATCH_CI                   Set to false to ignore CI checks.
 INIT_SUBMODULES             Set to false to skip submodule initialization.
 COPILOT_LABEL               Label to require. Defaults to CoPilot.

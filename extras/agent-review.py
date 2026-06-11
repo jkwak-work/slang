@@ -171,8 +171,6 @@ class AgentReview:
         self.agent_start_attempts = int(os.environ.get("AGENT_START_ATTEMPTS", "12"))
         self.comment_page_size = int(os.environ.get("COMMENT_PAGE_SIZE", "100"))
 
-        self.bootstrap_mode = os.environ.get("BOOTSTRAP_MODE", "prime")
-        self.ci_bootstrap_mode = os.environ.get("CI_BOOTSTRAP_MODE", self.bootstrap_mode)
         self.watch_ci = os.environ.get("WATCH_CI", "true").lower() != "false"
         self.init_submodules = os.environ.get("INIT_SUBMODULES", "true").lower() != "false"
         self.copilot_label = os.environ.get("COPILOT_LABEL", DEFAULT_LABEL)
@@ -1366,12 +1364,8 @@ class AgentReview:
         seen_file = self.seen_file_for_url(url)
         if not seen_file.exists():
             if self.dry_run:
-                return (events if self.bootstrap_mode == "trigger" else []), events
+                return events, events
             seen_file.write_text("")
-            if self.bootstrap_mode != "trigger":
-                self.mark_events_seen(url, events)
-                self.log(f"primed {url} with {len(events)} existing comment event(s)")
-                return [], events
         seen = set(seen_file.read_text().splitlines())
         return [event for event in events if event.get("id") not in seen], events
 
@@ -1470,13 +1464,11 @@ class AgentReview:
         pending_count = sum(1 for check in checks if check["bucket"] == "pending")
         if not state_file.exists():
             if self.dry_run:
-                if self.ci_bootstrap_mode == "trigger" and failure_count > 0:
-                    return True, signature
-                return False, ""
-            state_file.write_text(signature + "\n")
-            if self.ci_bootstrap_mode == "trigger" and failure_count > 0:
+                return (failure_count > 0), (signature if failure_count > 0 else "")
+            if failure_count > 0:
                 return True, signature
-            self.log(f"primed {url} CI with {failure_count} failure/cancel and {pending_count} pending check(s)")
+            state_file.write_text(signature + "\n")
+            self.log(f"recorded initial CI state for {url} with {pending_count} pending check(s)")
             return False, ""
         previous = state_file.read_text().strip()
         if previous == signature:
