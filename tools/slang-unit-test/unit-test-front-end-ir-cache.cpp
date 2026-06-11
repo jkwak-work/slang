@@ -8,9 +8,9 @@
 // cache, including across different targets sharing one front-end result.
 
 #include "core/slang-io.h"
-#include "slang/slang-internal.h"
 #include "slang-com-ptr.h"
 #include "slang.h"
+#include "slang/slang-internal.h"
 #include "unit-test/slang-unit-test.h"
 
 #include <stdio.h>
