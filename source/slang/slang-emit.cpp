@@ -2115,9 +2115,8 @@ Result linkAndOptimizeIR(
 
     if (isMetalTarget(targetRequest))
     {
-        // We need to legalize Metal IR after introducing the explicit global context,
-        // as introduceExplicitGlobalContext depends on entry points which can change during
-        // legalization
+        // Run Metal legalization after introduceExplicitGlobalContext so legalization
+        // sees the final entry-point/global-context shape.
         SLANG_PASS(legalizeIRForMetal, targetProgram, sink);
     }
 
