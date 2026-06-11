@@ -7,8 +7,8 @@ sends review-maintenance prompts to the agent running in the first tmux window.
 
 `agent-review.conf` tracks only PR URLs whose head repository owner is the authenticated user. PRs
 from other people are setup inputs only: the watcher creates a suffixed local clone branch such as
-`branch-name-jkwak-work`, asks the agent to create a PR on `@me/slang`, and waits for that clone PR
-to be discovered and tracked.
+`branch-name-externalowner-pr123-jkwak-work`, asks the agent to create a PR on `@me/slang`, and
+waits for that clone PR to be discovered and tracked.
 
 Keep the Mermaid flows in this document updated as the primary behavior contract whenever the
 script behavior changes.
@@ -82,7 +82,7 @@ flowchart TD
     E --> F["Convert head branch to a safe directory name by replacing path separators with `-`"]
     F --> G{"Head owner is @me?"}
     G -- yes --> H["Worktree path: `../<branch-dir>`\nLocal branch: original PR head branch"]
-    G -- no --> I["Clone worktree path: `../<branch-dir>-<me>`\nClone branch: same as directory name"]
+    G -- no --> I["Clone worktree path: `../<branch-dir>-<head-owner>-pr<N>-<me>`\nClone branch: same as directory name"]
     H --> J{"Worktree directory exists?"}
     I --> J
     J -- yes --> K{"Directory is a git worktree?"}
@@ -242,9 +242,11 @@ STATE_DIR                   State directory.
 
 For branch names containing `/`, the worktree directory replaces separators with `-`; the local
 branch for PRs owned by `@me` remains the original PR branch name. For PRs not owned by `@me`, the
-directory name gets the `-<me>` suffix and the local branch name is the same as the directory name.
-Those external PR URLs are not tracked directly; tracking starts when the agent-created clone PR on
-`@me/slang` is discovered.
+directory name includes the safe head branch, external head owner, PR number, and `-<me>` suffix;
+the local branch name is the same as the directory name. Including the owner and PR number prevents
+two external PRs with the same head branch name from sharing a worktree/session. Those external PR
+URLs are not tracked directly; tracking starts when the agent-created clone PR on `@me/slang` is
+discovered.
 
 The script never deletes worktrees or tmux sessions. Closed, unassigned, or unlabeled PR URLs are
 removed from `agent-review.conf`, but the local checkout is left for manual inspection.

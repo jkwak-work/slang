@@ -720,7 +720,12 @@ class AgentReview:
         branch_name = safe_name(pr.head_branch, fallback=f"pr-{pr.number}")
         if pr.head_owner.lower() == self.viewer_login.lower():
             return branch_name
-        return safe_name(f"{branch_name}-{self.viewer_login}", fallback=f"pr-{pr.number}-{self.viewer_login}")
+        owner = safe_name(pr.head_owner, lower=True, fallback="owner")
+        viewer = safe_name(self.viewer_login, lower=True, fallback="viewer")
+        suffix = safe_name(f"{owner}-pr{pr.number}-{viewer}", lower=True, fallback=f"pr{pr.number}-{viewer}")
+        max_branch_len = max(1, 120 - len(suffix) - 1)
+        branch_prefix = branch_name[:max_branch_len].rstrip(".-") or f"pr-{pr.number}"
+        return safe_name(f"{branch_prefix}-{suffix}", fallback=f"pr-{pr.number}-{viewer}")
 
     def worktree_path_for_pr(self, pr: PullRequest) -> Path:
         return self.repo_root.parent / self.worktree_name_for_pr(pr)
