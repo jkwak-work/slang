@@ -1,4 +1,7 @@
 //TEST:SIMPLE(filecheck=WGSL): -target wgsl -stage fragment -entry fragmentMain
+//TEST:SIMPLE(filecheck=SPIRV): -target wgsl-spirv-asm -stage fragment -entry fragmentMain
+
+//SPIRV: %fragmentMain = OpFunction
 
 struct HelperOutput
 {
@@ -13,7 +16,12 @@ struct HelperOutput
 
 struct FragmentOutput
 {
+    //WGSL-LABEL: struct FragmentOutput
+    //WGSL-DAG: @location(0) entryTarget0
     float4 entryTarget0 : SV_TARGET0;
+
+    //WGSL-DAG: @location(1) entryTarget1
+    //WGSL: }
     float4 entryTarget1 : SV_TARGET1;
 };
 
