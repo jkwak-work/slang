@@ -186,7 +186,9 @@ class AgentReview:
         self.rows: list[StateRow] = []
         self.dry_run = False
         self.once = False
-        self.assign_bot_prs_mode = False
+        self.assign_bot_prs_enabled = (
+            os.environ.get("ASSIGN_BOT_PRS", "true").lower() in {"1", "true", "yes", "on"}
+        )
         self.next_poll_seconds = self.poll_seconds
         self.state_changed = False
         self.status_line_active = False
@@ -221,17 +223,11 @@ class AgentReview:
     def print_status_line(self) -> None:
         if not sys.stderr.isatty():
             return
-        if self.assign_bot_prs_mode:
-            status = (
-                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] bot PR assignment poll completed; "
-                f"next poll in {self.next_poll_seconds}s"
-            )
-        else:
-            status = (
-                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] last poll completed; "
-                f"tracking {sum(len(row.urls) for row in self.rows)} URL(s) in {len(self.rows)} session(s); "
-                f"next poll in {self.next_poll_seconds}s"
-            )
+        status = (
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] last poll completed; "
+            f"tracking {sum(len(row.urls) for row in self.rows)} URL(s) in {len(self.rows)} session(s); "
+            f"next poll in {self.next_poll_seconds}s"
+        )
         cols = shutil.get_terminal_size((80, 24)).columns
         if len(status) >= cols and cols > 1:
             status = status[: cols - 1]
@@ -411,8 +407,16 @@ class AgentReview:
         parser.add_argument("--no-submodules", action="store_true")
         parser.add_argument(
             "--assign-bot-prs",
+            dest="assign_bot_prs_enabled",
             action="store_true",
-            help="only assign open bot-authored PRs linked from open issues assigned to @me",
+            default=None,
+            help="assign open bot-authored PRs linked from open issues assigned to @me (default)",
+        )
+        parser.add_argument(
+            "--no-assign-bot-prs",
+            dest="assign_bot_prs_enabled",
+            action="store_false",
+            help="disable assigning bot-authored PRs linked from issues assigned to @me",
         )
         parser.add_argument("--bot-login", default=None, metavar="LOGIN")
         parser.add_argument("--issue-limit", type=int, default=None, metavar="N")
@@ -441,25 +445,25 @@ class AgentReview:
             self.bot_login = args.bot_login
         if args.issue_limit is not None:
             self.issue_limit = args.issue_limit
-        self.assign_bot_prs_mode = args.assign_bot_prs
+        if args.assign_bot_prs_enabled is not None:
+            self.assign_bot_prs_enabled = args.assign_bot_prs_enabled
         self.once = args.once
         self.dry_run = args.dry_run
         self.monitored_repos = args.repo or []
 
     def print_startup_warning(self) -> None:
-        if self.assign_bot_prs_mode:
-            print(
-                f"WARNING: {self.script_name} will edit PR assignees for bot-authored PRs "
-                "linked from issues assigned to the authenticated GitHub user.",
-                file=sys.stderr,
-            )
-            return
         print(
             f"WARNING: {self.script_name} dispatches local agents from GitHub PR comments and CI state.\n"
             "Run it only for trusted repositories and trusted PR sources; PR comments can contain "
             "prompt-injection attempts.",
             file=sys.stderr,
         )
+        if self.assign_bot_prs_enabled:
+            print(
+                f"WARNING: {self.script_name} also edits PR assignees for bot-authored PRs "
+                "linked from issues assigned to the authenticated GitHub user.",
+                file=sys.stderr,
+            )
 
     def resolve_repo_root(self) -> None:
         result = self.git(["rev-parse", "--show-toplevel"])
@@ -483,16 +487,16 @@ class AgentReview:
 
     def log_startup(self) -> None:
         self.log(f"using GitHub CLI: {shutil.which(self.gh_command) or 'not found'}")
-        if not self.assign_bot_prs_mode:
-            self.log(f"using Git: {shutil.which(self.git_command) or 'not found'}")
-            self.log(f"using tmux: {shutil.which('tmux') or 'not found'}")
-            self.log(f"using agent: {shutil.which(self.agent_command.split()[0]) or 'not found'}")
+        self.log(f"using Git: {shutil.which(self.git_command) or 'not found'}")
+        self.log(f"using tmux: {shutil.which('tmux') or 'not found'}")
+        self.log(f"using agent: {shutil.which(self.agent_command.split()[0]) or 'not found'}")
         self.log(f"viewer login: {self.viewer_login}")
         self.log(f"monitored repositories: {', '.join(self.monitored_repos)}")
-        if self.assign_bot_prs_mode:
+        if self.assign_bot_prs_enabled:
             self.log(f"bot PR author: {self.bot_login}; issue limit: {self.issue_limit}")
         else:
-            self.log(f"state file: {self.config_file}")
+            self.log("bot PR assignment disabled")
+        self.log(f"state file: {self.config_file}")
 
     def read_state(self) -> None:
         self.rows = []
@@ -1696,6 +1700,8 @@ class AgentReview:
                 self.assign_bot_prs_for_issue(issue)
 
     def poll_once(self) -> None:
+        if self.assign_bot_prs_enabled:
+            self.assign_bot_prs_once()
         self.read_state()
         discovered = self.discover_prs()
         for pr in discovered:
@@ -1715,18 +1721,15 @@ class AgentReview:
     def run(self, argv: list[str]) -> int:
         self.parse_args(argv)
         self.print_startup_warning()
-        required_commands = [self.gh_command]
-        if not self.assign_bot_prs_mode:
-            required_commands.extend([self.git_command, "tmux", "bash", self.agent_command.split()[0]])
+        required_commands = [self.gh_command, self.git_command, "tmux", "bash", self.agent_command.split()[0]]
         for command in required_commands:
             self.need_command(command)
-        if not self.assign_bot_prs_mode and self.command_uses_windows_paths(self.git_command):
+        if self.command_uses_windows_paths(self.git_command):
             self.need_command("wslpath")
         if self.run_cmd([self.gh_command, "auth", "status"]).returncode != 0:
             self.die(f"{self.gh_command} is not authenticated")
-        if not self.assign_bot_prs_mode:
-            self.resolve_repo_root()
-        if not self.dry_run and not self.assign_bot_prs_mode:
+        self.resolve_repo_root()
+        if not self.dry_run:
             self.state_dir.mkdir(parents=True, exist_ok=True)
         self.viewer_login = self.resolve_viewer_login()
         self.finalize_monitored_repos()
@@ -1734,11 +1737,8 @@ class AgentReview:
 
         while True:
             self.reset_next_poll_delay()
-            if self.assign_bot_prs_mode:
-                self.assign_bot_prs_once()
-            else:
-                self.poll_once()
-            if not self.dry_run and not self.assign_bot_prs_mode:
+            self.poll_once()
+            if not self.dry_run:
                 self.persist_idle_screen_observations()
             self.print_status_line()
             if self.once:

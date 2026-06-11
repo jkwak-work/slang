@@ -20,7 +20,7 @@ extras/agent-review.py --agent codex
 extras/agent-review.py --agent claude
 extras/agent-review.py --yolo
 extras/agent-review.py --once --dry-run --no-submodules
-extras/agent-review.py --assign-bot-prs
+extras/agent-review.py --no-assign-bot-prs
 ```
 
 The script must be run from inside a Slang git worktree. It resolves the repository root and
@@ -53,6 +53,22 @@ URLs are last because one worktree/session can correspond to more than one owned
 contributor PR URLs are never written to this file. The script keeps derived state beside the
 config file using hashed filenames for seen comments, CI signatures, external clone-prompt markers,
 and tmux idle signatures.
+
+## Iteration Flow
+
+```mermaid
+flowchart TD
+    A["Start poll iteration"] --> B{"Bot PR assignment enabled?"}
+    B -- yes --> C["Run Bot PR Assignee Flow"]
+    B -- no --> D["Skip bot PR assignment"]
+    C --> E["Run Discovery Flow"]
+    D --> E
+    E --> F["Run Monitor Flow"]
+    F --> G{"`--once`?"}
+    G -- yes --> H["Exit"]
+    G -- no --> I["Sleep until next poll"]
+    I --> A
+```
 
 ## Discovery Flow
 
@@ -133,12 +149,13 @@ the previous poll. This avoids sending a new task while the agent is still strea
 
 ## Bot PR Assignee Flow
 
-Run this as a separate process with `--assign-bot-prs`. This mode does not start agents, create
-worktrees, or read `agent-review.conf`; it only edits PR assignees through GitHub.
+This runs once per poll by default before PR discovery and monitoring. It can edit PR assignees
+through GitHub, but it does not create worktrees, start tmux, launch agents, or read/write
+`agent-review.conf`. Disable it with `--no-assign-bot-prs` or `ASSIGN_BOT_PRS=false`.
 
 ```mermaid
 flowchart TD
-    A["Start bot-assignee poll"] --> B["Resolve @me with `gh api user`"]
+    A["Start bot-assignee pass"] --> B["Use resolved @me login"]
     B --> C["For each configured repository, list open issues assigned to @me"]
     C --> D{"Issue found?"}
     D -- no --> Z["Wait for next poll"]
@@ -172,7 +189,8 @@ Command-line options:
 --once                      Run one poll and exit.
 --dry-run                   Discover and print planned state without writing files or starting tmux.
 --no-submodules             Skip submodule initialization for new worktrees.
---assign-bot-prs            Run only the open-issue to bot-PR assignee process.
+--assign-bot-prs            Enable open-issue to bot-PR assignee pass. This is the default.
+--no-assign-bot-prs         Disable the open-issue to bot-PR assignee pass.
 --bot-login LOGIN           Bot PR author to match. Defaults to nv-slang-bot.
 --issue-limit N             Open assigned issue limit per repository. Defaults to DISCOVERY_LIMIT.
 ```
@@ -202,8 +220,9 @@ WATCH_CI                   Set to false to ignore CI checks.
 INIT_SUBMODULES             Set to false to skip submodule initialization.
 COPILOT_LABEL               Label to require. Defaults to CoPilot.
 DISCOVERY_LIMIT             PR discovery limit per repository.
-ISSUE_LIMIT                 Open assigned issue limit per repository for --assign-bot-prs.
-BOT_PR_AUTHOR               Bot PR author for --assign-bot-prs. Defaults to nv-slang-bot.
+ISSUE_LIMIT                 Open assigned issue limit per repository for bot PR assignment.
+BOT_PR_AUTHOR               Bot PR author for bot PR assignment. Defaults to nv-slang-bot.
+ASSIGN_BOT_PRS              Set false to disable bot PR assignment. Defaults to true.
 STATE_DIR                   State directory.
 ```
 
