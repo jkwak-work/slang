@@ -74,6 +74,28 @@ class PullRequestStatus:
     labels: list[str]
     assignees: list[str]
     is_draft: bool
+    head_owner: str
+    head_repo: str
+    head_branch: str
+
+
+@dataclass
+class IssueItem:
+    repo: str
+    number: str
+    url: str
+    title: str
+
+
+@dataclass
+class PullRequestAssignmentInfo:
+    repo: str
+    number: str
+    url: str
+    title: str
+    state: str
+    author: str
+    assignees: list[str]
 
 
 def strip_cr(text: str) -> str:
@@ -154,6 +176,8 @@ class AgentReview:
         self.init_submodules = os.environ.get("INIT_SUBMODULES", "true").lower() != "false"
         self.copilot_label = os.environ.get("COPILOT_LABEL", DEFAULT_LABEL)
         self.discovery_limit = int(os.environ.get("DISCOVERY_LIMIT", "100"))
+        self.issue_limit = int(os.environ.get("ISSUE_LIMIT", os.environ.get("DISCOVERY_LIMIT", "100")))
+        self.bot_login = os.environ.get("BOT_PR_AUTHOR", "nv-slang-bot")
 
         self.viewer_login = ""
         self.repo_root = Path.cwd()
@@ -161,6 +185,7 @@ class AgentReview:
         self.rows: list[StateRow] = []
         self.dry_run = False
         self.once = False
+        self.assign_bot_prs_mode = False
         self.next_poll_seconds = self.poll_seconds
         self.state_changed = False
         self.status_line_active = False
@@ -195,11 +220,17 @@ class AgentReview:
     def print_status_line(self) -> None:
         if not sys.stderr.isatty():
             return
-        status = (
-            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] last poll completed; "
-            f"tracking {sum(len(row.urls) for row in self.rows)} URL(s) in {len(self.rows)} session(s); "
-            f"next poll in {self.next_poll_seconds}s"
-        )
+        if self.assign_bot_prs_mode:
+            status = (
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] bot PR assignment poll completed; "
+                f"next poll in {self.next_poll_seconds}s"
+            )
+        else:
+            status = (
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] last poll completed; "
+                f"tracking {sum(len(row.urls) for row in self.rows)} URL(s) in {len(self.rows)} session(s); "
+                f"next poll in {self.next_poll_seconds}s"
+            )
         cols = shutil.get_terminal_size((80, 24)).columns
         if len(status) >= cols and cols > 1:
             status = status[: cols - 1]
@@ -372,6 +403,13 @@ class AgentReview:
         parser.add_argument("--once", action="store_true")
         parser.add_argument("--dry-run", action="store_true")
         parser.add_argument("--no-submodules", action="store_true")
+        parser.add_argument(
+            "--assign-bot-prs",
+            action="store_true",
+            help="only assign open bot-authored PRs linked from open issues assigned to @me",
+        )
+        parser.add_argument("--bot-login", default=None, metavar="LOGIN")
+        parser.add_argument("--issue-limit", type=int, default=None, metavar="N")
         args = parser.parse_args(argv)
 
         if args.agent:
@@ -391,11 +429,23 @@ class AgentReview:
             self.config_file = self.state_dir / "agent-review.conf"
         if args.no_submodules:
             self.init_submodules = False
+        if args.bot_login:
+            self.bot_login = args.bot_login
+        if args.issue_limit is not None:
+            self.issue_limit = args.issue_limit
+        self.assign_bot_prs_mode = args.assign_bot_prs
         self.once = args.once
         self.dry_run = args.dry_run
         self.monitored_repos = args.repo or []
 
     def print_startup_warning(self) -> None:
+        if self.assign_bot_prs_mode:
+            print(
+                f"WARNING: {self.script_name} will edit PR assignees for bot-authored PRs "
+                "linked from issues assigned to the authenticated GitHub user.",
+                file=sys.stderr,
+            )
+            return
         print(
             f"WARNING: {self.script_name} dispatches local agents from GitHub PR comments and CI state.\n"
             "Run it only for trusted repositories and trusted PR sources; PR comments can contain "
@@ -425,12 +475,16 @@ class AgentReview:
 
     def log_startup(self) -> None:
         self.log(f"using GitHub CLI: {shutil.which(self.gh_command) or 'not found'}")
-        self.log(f"using Git: {shutil.which(self.git_command) or 'not found'}")
-        self.log(f"using tmux: {shutil.which('tmux') or 'not found'}")
-        self.log(f"using agent: {shutil.which(self.agent_command.split()[0]) or 'not found'}")
+        if not self.assign_bot_prs_mode:
+            self.log(f"using Git: {shutil.which(self.git_command) or 'not found'}")
+            self.log(f"using tmux: {shutil.which('tmux') or 'not found'}")
+            self.log(f"using agent: {shutil.which(self.agent_command.split()[0]) or 'not found'}")
         self.log(f"viewer login: {self.viewer_login}")
         self.log(f"monitored repositories: {', '.join(self.monitored_repos)}")
-        self.log(f"state file: {self.config_file}")
+        if self.assign_bot_prs_mode:
+            self.log(f"bot PR author: {self.bot_login}; issue limit: {self.issue_limit}")
+        else:
+            self.log(f"state file: {self.config_file}")
 
     def read_state(self) -> None:
         self.rows = []
@@ -564,6 +618,13 @@ class AgentReview:
         has_label = any(label.lower() == self.copilot_label.lower() for label in pr.labels)
         assigned_to_me = any(login.lower() == self.viewer_login.lower() for login in pr.assignees)
         return has_label and assigned_to_me
+
+    def pr_is_from_viewer(self, pr: PullRequest | PullRequestStatus) -> bool:
+        return pr.head_owner.lower() == self.viewer_login.lower()
+
+    def row_has_fork_pr_url(self, row: StateRow) -> bool:
+        prefix = f"https://github.com/{self.viewer_login.lower()}/"
+        return any(url.lower().startswith(prefix) for url in row.urls)
 
     def discover_repo_prs(self, repo: str) -> list[PullRequest]:
         fields = ",".join(
@@ -842,34 +903,58 @@ class AgentReview:
             return worktree
         return None
 
-    def initial_prompt_pending_file(self, url: str) -> Path:
-        return self.state_dir / f"{state_hash(url)}.initial-prompt"
+    def clone_prompt_sent_file(self, url: str) -> Path:
+        return self.state_dir / f"{state_hash(url)}.clone-prompt-sent"
 
-    def queue_initial_prompt(self, pr: PullRequest) -> None:
-        if pr.head_owner.lower() == self.viewer_login.lower():
+    def clone_prompt_was_sent(self, url: str) -> bool:
+        return self.clone_prompt_sent_file(url).exists()
+
+    def mark_clone_prompt_sent(self, url: str) -> None:
+        if self.dry_run:
             return
-        path = self.initial_prompt_pending_file(pr.url)
-        if not path.exists():
-            if self.dry_run:
-                self.log(f"dry-run: would queue initial PR-create prompt for {pr.url}")
-                return
-            path.write_text(f"{self.viewer_login}/slang\n")
-            self.log(f"queued initial PR-create prompt for {pr.url}")
+        self.clone_prompt_sent_file(url).write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {url}\n")
 
-    def clear_initial_prompt(self, url: str) -> None:
-        self.initial_prompt_pending_file(url).unlink(missing_ok=True)
+    def handle_external_pr_clone(self, pr: PullRequest, worktree: Path, session: str) -> None:
+        row = self.row_for_path(str(worktree))
+        if row and self.row_has_fork_pr_url(row):
+            self.log(f"clone PR for {pr.url} is already tracked through {worktree}")
+            return
+        if self.clone_prompt_was_sent(pr.url):
+            self.log(f"clone prompt already sent for {pr.url}; waiting for {self.viewer_login}/slang PR discovery")
+            return
 
-    def pending_initial_prompt_repo(self, url: str) -> str:
-        path = self.initial_prompt_pending_file(url)
-        if not path.exists():
-            return ""
-        return path.read_text().strip() or f"{self.viewer_login}/slang"
+        target, started = self.ensure_agent_target(session, str(worktree))
+        if not target:
+            return
+        text = self.pane_tail(target)
+        if self.maybe_approve_prompt(target, text):
+            self.next_poll_seconds = min(self.next_poll_seconds, self.poll_action_seconds)
+            return
+        if not started and not self.target_screen_is_idle(target, text):
+            self.next_poll_seconds = min(self.next_poll_seconds, self.poll_active_seconds)
+            return
+
+        repo = f"{self.viewer_login}/slang"
+        if self.send_prompt_to_target(target, self.pr_create_prompt(target, text, repo)):
+            self.mark_clone_prompt_sent(pr.url)
+            self.next_poll_seconds = min(self.next_poll_seconds, self.poll_action_seconds)
+            self.log(
+                f"sent clone {PR_CREATE_SKILL} prompt for external PR {pr.url} "
+                f"using branch {self.local_branch_for_pr(pr)}"
+            )
+        else:
+            self.next_poll_seconds = min(self.next_poll_seconds, self.poll_action_seconds)
+            self.log(f"failed to send clone {PR_CREATE_SKILL} prompt for external PR {pr.url}")
 
     def upsert_discovered_pr(self, pr: PullRequest) -> None:
         worktree = self.ensure_worktree_for_pr(pr)
         if not worktree:
             return
         session = worktree.name
+        if not self.pr_is_from_viewer(pr):
+            self.handle_external_pr_clone(pr, worktree, safe_name(session))
+            return
+
         existing = self.row_for_url(pr.url)
         if existing:
             return
@@ -885,8 +970,6 @@ class AgentReview:
             self.state_changed = True
             is_new_url = True
             self.log(f"tracking {pr.url} in {worktree} session={row.session}")
-        if is_new_url:
-            self.queue_initial_prompt(pr)
         self.ensure_agent_target(row.session, row.path)
 
     def tmux_session_exists(self, session: str) -> bool:
@@ -1100,24 +1183,6 @@ class AgentReview:
         prefix = self.skill_prefix_for_target(target, text)
         return f"{prefix}{RESOLVE_COMMENTS_SKILL} --single-pass {' '.join(urls)}\n"
 
-    def try_send_pending_initial_prompts(self, row: StateRow, target: str, text: str, started: bool) -> bool:
-        pending_urls = [url for url in row.urls if self.pending_initial_prompt_repo(url)]
-        if not pending_urls:
-            return False
-        if not started and not self.target_screen_is_idle(target, text):
-            self.next_poll_seconds = min(self.next_poll_seconds, self.poll_active_seconds)
-            return True
-        repo = self.pending_initial_prompt_repo(pending_urls[0]) or f"{self.viewer_login}/slang"
-        if self.send_prompt_to_target(target, self.pr_create_prompt(target, text, repo)):
-            for url in pending_urls:
-                self.clear_initial_prompt(url)
-            self.next_poll_seconds = min(self.next_poll_seconds, self.poll_action_seconds)
-            self.log(f"sent initial {PR_CREATE_SKILL} prompt for {', '.join(pending_urls)} to {target}")
-        else:
-            self.next_poll_seconds = min(self.next_poll_seconds, self.poll_action_seconds)
-            self.log(f"failed to send initial {PR_CREATE_SKILL} prompt to {target}")
-        return True
-
     def pr_status_for_url(self, url: str) -> PullRequestStatus | None:
         parsed = parse_pr_url(url)
         if not parsed:
@@ -1132,7 +1197,7 @@ class AgentReview:
                 "--repo",
                 repo,
                 "--json",
-                "assignees,isDraft,labels,state",
+                "assignees,headRefName,headRepository,headRepositoryOwner,isDraft,labels,state",
             ]
         )
         if result.returncode != 0:
@@ -1148,6 +1213,9 @@ class AgentReview:
             labels=self.labels_from_json(item.get("labels")),
             assignees=self.logins_from_json(item.get("assignees")),
             is_draft=bool(item.get("isDraft")),
+            head_owner=self.owner_login_from_json(item.get("headRepositoryOwner")),
+            head_repo=self.repo_name_from_json(item.get("headRepository")),
+            head_branch=str(item.get("headRefName") or ""),
         )
 
     def fetch_json_stream(self, endpoint: str) -> list[Any] | None:
@@ -1352,8 +1420,6 @@ class AgentReview:
         if self.maybe_approve_prompt(target, text):
             self.next_poll_seconds = min(self.next_poll_seconds, self.poll_action_seconds)
             return None, None
-        if self.try_send_pending_initial_prompts(row, target, text, started):
-            return None, None
         if not self.target_screen_is_idle(target, text):
             self.next_poll_seconds = min(self.next_poll_seconds, self.poll_active_seconds)
             return None, None
@@ -1374,6 +1440,10 @@ class AgentReview:
             if status is None:
                 continue
             if status.state != "OPEN":
+                self.remove_url_from_rows(url)
+                continue
+            if not self.pr_is_from_viewer(status):
+                self.log(f"stopped tracking {url}: PR head is not owned by {self.viewer_login}")
                 self.remove_url_from_rows(url)
                 continue
             if not self.pr_matches_policy(status):
@@ -1412,6 +1482,195 @@ class AgentReview:
             self.next_poll_seconds = min(self.next_poll_seconds, self.poll_action_seconds)
             self.log(f"failed to send {RESOLVE_COMMENTS_SKILL} prompt for {', '.join(urls_for_prompt)}")
 
+    def fetch_assigned_open_issues(self, repo: str) -> list[IssueItem] | None:
+        result = self.run_cmd(
+            [
+                self.gh_command,
+                "issue",
+                "list",
+                "--repo",
+                repo,
+                "--assignee",
+                "@me",
+                "--state",
+                "open",
+                "--limit",
+                str(self.issue_limit),
+                "--json",
+                "number,title,url",
+            ]
+        )
+        if result.returncode != 0:
+            self.log(f"failed to fetch assigned open issues for {repo}: {result.stderr.strip()}")
+            return None
+        try:
+            raw_issues = json.loads(result.stdout or "[]")
+        except json.JSONDecodeError as exc:
+            self.log(f"failed to parse assigned open issues for {repo}: {exc}")
+            return None
+        issues: list[IssueItem] = []
+        for item in raw_issues:
+            if not isinstance(item, dict):
+                continue
+            number = str(item.get("number") or "")
+            if not number:
+                continue
+            issues.append(
+                IssueItem(
+                    repo=repo,
+                    number=number,
+                    url=str(item.get("url") or f"https://github.com/{repo}/issues/{number}"),
+                    title=str(item.get("title") or ""),
+                )
+            )
+        return issues
+
+    @staticmethod
+    def normalize_pr_url(value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        parsed = parse_pr_url(value)
+        if parsed:
+            return f"https://github.com/{parsed[0]}/pull/{parsed[1]}"
+        match = re.fullmatch(r"https://api\.github\.com/repos/([^/\s]+/[^/\s]+)/pulls/([0-9]+)", value)
+        if match:
+            return f"https://github.com/{match.group(1)}/pull/{match.group(2)}"
+        return ""
+
+    def pr_url_from_issue_object(self, item: Any) -> str:
+        if not isinstance(item, dict) or item.get("pull_request") is None:
+            return ""
+        for candidate in (
+            item.get("html_url"),
+            item.get("url"),
+            item.get("pull_request", {}).get("html_url") if isinstance(item.get("pull_request"), dict) else "",
+            item.get("pull_request", {}).get("url") if isinstance(item.get("pull_request"), dict) else "",
+        ):
+            if not candidate:
+                continue
+            url = self.normalize_pr_url(str(candidate))
+            if url:
+                return url
+        return ""
+
+    def related_pr_urls_for_issue(self, issue: IssueItem) -> list[str] | None:
+        urls: list[str] = []
+        result = self.run_cmd(
+            [
+                self.gh_command,
+                "issue",
+                "view",
+                issue.number,
+                "--repo",
+                issue.repo,
+                "--json",
+                "closedByPullRequestsReferences",
+            ]
+        )
+        if result.returncode != 0:
+            self.log(f"failed to fetch linked PR references for {issue.url}: {result.stderr.strip()}")
+            return None
+        try:
+            issue_data = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError as exc:
+            self.log(f"failed to parse linked PR references for {issue.url}: {exc}")
+            return None
+        for ref in issue_data.get("closedByPullRequestsReferences", []):
+            if not isinstance(ref, dict):
+                continue
+            url = self.normalize_pr_url(str(ref.get("url") or ""))
+            if url:
+                urls.append(url)
+
+        timeline = self.fetch_json_stream(
+            f"repos/{issue.repo}/issues/{issue.number}/timeline?per_page={self.comment_page_size}"
+        )
+        if timeline is None:
+            self.log(f"failed to fetch issue timeline for {issue.url}")
+            return None
+        for event in timeline:
+            if not isinstance(event, dict):
+                continue
+            for candidate in (
+                event.get("source", {}).get("issue") if isinstance(event.get("source"), dict) else None,
+                event.get("subject"),
+            ):
+                url = self.pr_url_from_issue_object(candidate)
+                if url:
+                    urls.append(url)
+        return unique_preserve_order(urls)
+
+    def pr_assignment_info_for_url(self, url: str) -> PullRequestAssignmentInfo | None:
+        parsed = parse_pr_url(url)
+        if not parsed:
+            return None
+        repo, number = parsed
+        result = self.run_cmd(
+            [
+                self.gh_command,
+                "pr",
+                "view",
+                number,
+                "--repo",
+                repo,
+                "--json",
+                "assignees,author,number,state,title,url",
+            ]
+        )
+        if result.returncode != 0:
+            self.log(f"failed to fetch PR metadata for {url}: {result.stderr.strip()}")
+            return None
+        try:
+            item = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError as exc:
+            self.log(f"failed to parse PR metadata for {url}: {exc}")
+            return None
+        author = item.get("author", {}).get("login", "") if isinstance(item.get("author"), dict) else ""
+        return PullRequestAssignmentInfo(
+            repo=repo,
+            number=str(item.get("number") or number),
+            url=str(item.get("url") or url),
+            title=str(item.get("title") or ""),
+            state=str(item.get("state") or "").upper(),
+            author=str(author),
+            assignees=self.logins_from_json(item.get("assignees")),
+        )
+
+    def assign_bot_pr_to_me_if_needed(self, issue: IssueItem, pr_url: str) -> None:
+        info = self.pr_assignment_info_for_url(pr_url)
+        if not info:
+            return
+        if info.state != "OPEN":
+            return
+        if info.author.lower() != self.bot_login.lower():
+            return
+        if any(assignee.lower() == self.viewer_login.lower() for assignee in info.assignees):
+            return
+        if self.dry_run:
+            self.log(f"dry-run: would assign {info.url} to {self.viewer_login} for issue {issue.url}")
+            return
+        result = self.run_cmd([self.gh_command, "pr", "edit", info.url, "--add-assignee", "@me"])
+        if result.returncode == 0:
+            self.log(f"assigned bot PR {info.url} to {self.viewer_login} for issue {issue.url}")
+        else:
+            self.log(f"failed to assign bot PR {info.url}: {result.stderr.strip()}")
+
+    def assign_bot_prs_for_issue(self, issue: IssueItem) -> None:
+        related_urls = self.related_pr_urls_for_issue(issue)
+        if related_urls is None:
+            return
+        for pr_url in related_urls:
+            self.assign_bot_pr_to_me_if_needed(issue, pr_url)
+
+    def assign_bot_prs_once(self) -> None:
+        for repo in self.monitored_repos:
+            issues = self.fetch_assigned_open_issues(repo)
+            if issues is None:
+                continue
+            for issue in issues:
+                self.assign_bot_prs_for_issue(issue)
+
     def poll_once(self) -> None:
         self.read_state()
         discovered = self.discover_prs()
@@ -1432,14 +1691,18 @@ class AgentReview:
     def run(self, argv: list[str]) -> int:
         self.parse_args(argv)
         self.print_startup_warning()
-        for command in [self.gh_command, self.git_command, "tmux", "bash", self.agent_command.split()[0]]:
+        required_commands = [self.gh_command]
+        if not self.assign_bot_prs_mode:
+            required_commands.extend([self.git_command, "tmux", "bash", self.agent_command.split()[0]])
+        for command in required_commands:
             self.need_command(command)
-        if self.command_uses_windows_paths(self.git_command):
+        if not self.assign_bot_prs_mode and self.command_uses_windows_paths(self.git_command):
             self.need_command("wslpath")
         if self.run_cmd([self.gh_command, "auth", "status"]).returncode != 0:
             self.die(f"{self.gh_command} is not authenticated")
-        self.resolve_repo_root()
-        if not self.dry_run:
+        if not self.assign_bot_prs_mode:
+            self.resolve_repo_root()
+        if not self.dry_run and not self.assign_bot_prs_mode:
             self.state_dir.mkdir(parents=True, exist_ok=True)
         self.viewer_login = self.resolve_viewer_login()
         self.finalize_monitored_repos()
@@ -1447,8 +1710,11 @@ class AgentReview:
 
         while True:
             self.reset_next_poll_delay()
-            self.poll_once()
-            if not self.dry_run:
+            if self.assign_bot_prs_mode:
+                self.assign_bot_prs_once()
+            else:
+                self.poll_once()
+            if not self.dry_run and not self.assign_bot_prs_mode:
                 self.persist_idle_screen_observations()
             self.print_status_line()
             if self.once:
