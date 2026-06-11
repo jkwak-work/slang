@@ -592,6 +592,15 @@ class AgentReview:
         return [str(item.get("login", "")) for item in value if isinstance(item, dict) and item.get("login")]
 
     @staticmethod
+    def normalize_bot_author_login(value: str) -> str:
+        value = value.strip().lower()
+        if value.startswith("app/"):
+            value = value[4:]
+        if value.endswith("[bot]"):
+            value = value[:-5]
+        return value
+
+    @staticmethod
     def repo_name_from_json(value: Any) -> str:
         if isinstance(value, dict):
             return str(value.get("nameWithOwner") or "")
@@ -633,6 +642,11 @@ class AgentReview:
 
     def pr_is_from_viewer(self, pr: PullRequest | PullRequestStatus) -> bool:
         return pr.head_owner.lower() == self.viewer_login.lower()
+
+    def pr_is_from_bot_author(self, pr_author: str) -> bool:
+        return self.normalize_bot_author_login(pr_author) == self.normalize_bot_author_login(
+            self.bot_login
+        )
 
     def row_has_fork_pr_url(self, row: StateRow) -> bool:
         prefix = f"https://github.com/{self.viewer_login.lower()}/"
@@ -1615,18 +1629,18 @@ class AgentReview:
             f"repos/{issue.repo}/issues/{issue.number}/timeline?per_page={self.comment_page_size}"
         )
         if timeline is None:
-            self.log(f"failed to fetch issue timeline for {issue.url}")
-            return None
-        for event in timeline:
-            if not isinstance(event, dict):
-                continue
-            for candidate in (
-                event.get("source", {}).get("issue") if isinstance(event.get("source"), dict) else None,
-                event.get("subject"),
-            ):
-                url = self.pr_url_from_issue_object(candidate)
-                if url:
-                    urls.append(url)
+            self.log(f"failed to fetch issue timeline for {issue.url}; using closing PR references only")
+        else:
+            for event in timeline:
+                if not isinstance(event, dict):
+                    continue
+                for candidate in (
+                    event.get("source", {}).get("issue") if isinstance(event.get("source"), dict) else None,
+                    event.get("subject"),
+                ):
+                    url = self.pr_url_from_issue_object(candidate)
+                    if url:
+                        urls.append(url)
         return unique_preserve_order(urls)
 
     def pr_assignment_info_for_url(self, url: str) -> PullRequestAssignmentInfo | None:
@@ -1671,7 +1685,7 @@ class AgentReview:
             return
         if info.state != "OPEN":
             return
-        if info.author.lower() != self.bot_login.lower():
+        if not self.pr_is_from_bot_author(info.author):
             return
         if any(assignee.lower() == self.viewer_login.lower() for assignee in info.assignees):
             return

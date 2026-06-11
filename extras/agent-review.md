@@ -160,18 +160,24 @@ flowchart TD
     C --> D{"Issue found?"}
     D -- no --> Z["Wait for next poll"]
     D -- yes --> E["Read `closedByPullRequestsReferences` for the issue"]
-    E --> F["Read issue timeline cross-references"]
-    F --> G["Normalize related PR URLs and remove duplicates"]
-    G --> H{"Related PR URL?"}
-    H -- no --> Z
-    H -- yes --> I["Fetch PR author, state, and assignees"]
-    I --> J{"PR is open and authored by `nv-slang-bot`?"}
-    J -- no --> H
-    J -- yes --> K{"Is @me already assigned?"}
-    K -- yes --> H
-    K -- no --> L["Run `gh pr edit <url> --add-assignee @me`"]
-    L --> H
+    E --> F["Try to read issue timeline cross-references"]
+    F -- available --> G["Add timeline PR URLs"]
+    F -- unavailable --> H["Keep closing PR URLs only"]
+    G --> I["Normalize related PR URLs and remove duplicates"]
+    H --> I
+    I --> J{"Related PR URL?"}
+    J -- no --> Z
+    J -- yes --> K["Fetch PR author, state, and assignees"]
+    K --> L{"PR is open and authored by configured bot?"}
+    L -- no --> J
+    L -- yes --> M{"Is @me already assigned?"}
+    M -- yes --> J
+    M -- no --> N["Run `gh pr edit <url> --add-assignee @me`"]
+    N --> J
 ```
+
+Bot author matching normalizes GitHub App and bot-user spellings. The default
+`nv-slang-bot` also matches `app/nv-slang-bot` and `nv-slang-bot[bot]`.
 
 ## Configuration
 
@@ -192,6 +198,7 @@ Command-line options:
 --assign-bot-prs            Enable open-issue to bot-PR assignee pass. This is the default.
 --no-assign-bot-prs         Disable the open-issue to bot-PR assignee pass.
 --bot-login LOGIN           Bot PR author to match. Defaults to nv-slang-bot.
+                            App and [bot] login spellings are normalized.
 --issue-limit N             Open assigned issue limit per repository. Defaults to DISCOVERY_LIMIT.
 ```
 
@@ -222,6 +229,7 @@ COPILOT_LABEL               Label to require. Defaults to CoPilot.
 DISCOVERY_LIMIT             PR discovery limit per repository.
 ISSUE_LIMIT                 Open assigned issue limit per repository for bot PR assignment.
 BOT_PR_AUTHOR               Bot PR author for bot PR assignment. Defaults to nv-slang-bot.
+                            App and [bot] login spellings are normalized.
 ASSIGN_BOT_PRS              Set false to disable bot PR assignment. Defaults to true.
 STATE_DIR                   State directory.
 ```
