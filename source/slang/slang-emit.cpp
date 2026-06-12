@@ -1771,6 +1771,7 @@ Result linkAndOptimizeIR(
         break;
     case CodeGenTarget::Metal:
     case CodeGenTarget::MetalLib:
+    case CodeGenTarget::MetalLibAssembly:
         // Metal does not allow `ConstantBuffer<StructuredBuffer<T>>`, so we need to create
         // a wrapper struct for the `StructuredBuffer<T>`.
         SLANG_PASS(wrapCBufferElementsForMetal);
