@@ -2009,6 +2009,16 @@ Result linkAndOptimizeIR(
         }
         break;
 
+    case CodeGenTarget::Metal:
+    case CodeGenTarget::MetalLib:
+    case CodeGenTarget::MetalLibAssembly:
+        {
+            // Subpass input globals must be rewritten while their entry-point uses are still
+            // visible, before introduceExplicitGlobalContext wraps globals in a context object.
+            SLANG_PASS(legalizeSubpassInputsForMetal, sink);
+        }
+        break;
+
     case CodeGenTarget::WGSL:
     case CodeGenTarget::WGSLSPIRV:
     case CodeGenTarget::WGSLSPIRVAssembly:
