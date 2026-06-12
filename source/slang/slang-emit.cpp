@@ -1988,6 +1988,16 @@ Result linkAndOptimizeIR(
             validateIRModuleIfEnabled(codeGenContext, irModule);
         }
         break;
+    case CodeGenTarget::Metal:
+    case CodeGenTarget::MetalLib:
+    case CodeGenTarget::MetalLibAssembly:
+        {
+            // Subpass input globals must be rewritten while their entry-point uses are still
+            // visible, before introduceExplicitGlobalContext wraps globals in a context object.
+            SLANG_PASS(legalizeSubpassInputsForMetal, sink);
+        }
+        break;
+
     case CodeGenTarget::CSource:
     case CodeGenTarget::CPPSource:
     case CodeGenTarget::CPPHeader:
@@ -2006,16 +2016,6 @@ Result linkAndOptimizeIR(
     case CodeGenTarget::CUDAHeader:
         {
             SLANG_PASS(legalizeEntryPointVaryingParamsForCUDA, codeGenContext->getSink());
-        }
-        break;
-
-    case CodeGenTarget::Metal:
-    case CodeGenTarget::MetalLib:
-    case CodeGenTarget::MetalLibAssembly:
-        {
-            // Subpass input globals must be rewritten while their entry-point uses are still
-            // visible, before introduceExplicitGlobalContext wraps globals in a context object.
-            SLANG_PASS(legalizeSubpassInputsForMetal, sink);
         }
         break;
 

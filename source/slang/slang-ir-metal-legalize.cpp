@@ -432,8 +432,8 @@ void legalizeIRForMetal(IRModule* module, TargetProgram* targetProgram, Diagnost
         }
     }
 
-    legalizeSubpassInputsForMetalImpl(module, sink, entryPoints);
-
+    // Subpass inputs are legalized earlier in linkAndOptimizeIR, before the explicit global
+    // context pass hides direct entry-point uses.
     legalizeEntryPointVaryingParamsForMetal(module, sink, entryPoints);
 
     processInst(module->getModuleInst(), targetProgram, sink);
