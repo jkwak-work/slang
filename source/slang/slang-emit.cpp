@@ -1760,6 +1760,8 @@ Result linkAndOptimizeIR(
     if (requiredLoweringPassSet.dynamicResourceHeap)
         SLANG_PASS(lowerDynamicResourceHeap, targetProgram, sink);
 
+    SLANG_PASS(checkUnsupportedCoherentMemoryQualifier, targetRequest, sink);
+
     validateIRModuleIfEnabled(codeGenContext, irModule);
 
     // After type legalization and subsequent SSA cleanup we expect
