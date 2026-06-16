@@ -247,11 +247,23 @@ static void processInst(IRInst* inst, TargetProgram* targetProgram, DiagnosticSi
     }
 }
 
-static void legalizeSubpassInputsForMetalImpl(
-    IRModule* module,
-    DiagnosticSink* sink,
-    List<EntryPointInfo>& entryPoints)
+void legalizeSubpassInputsForMetal(IRModule* module, DiagnosticSink* sink)
 {
+    List<EntryPointInfo> entryPoints;
+    for (auto inst : module->getGlobalInsts())
+    {
+        if (auto func = as<IRFunc>(inst))
+        {
+            if (auto entryPointDecor = func->findDecoration<IREntryPointDecoration>())
+            {
+                EntryPointInfo info;
+                info.entryPointDecor = entryPointDecor;
+                info.entryPointFunc = func;
+                entryPoints.add(info);
+            }
+        }
+    }
+
     List<IRGlobalParam*> subpassGlobals;
     for (auto inst : module->getGlobalInsts())
     {
@@ -394,26 +406,6 @@ static void legalizeSubpassInputsForMetalImpl(
         fixUpFuncType(func);
 }
 
-void legalizeSubpassInputsForMetal(IRModule* module, DiagnosticSink* sink)
-{
-    List<EntryPointInfo> entryPoints;
-    for (auto inst : module->getGlobalInsts())
-    {
-        if (auto func = as<IRFunc>(inst))
-        {
-            if (auto entryPointDecor = func->findDecoration<IREntryPointDecoration>())
-            {
-                EntryPointInfo info;
-                info.entryPointDecor = entryPointDecor;
-                info.entryPointFunc = func;
-                entryPoints.add(info);
-            }
-        }
-    }
-
-    legalizeSubpassInputsForMetalImpl(module, sink, entryPoints);
-}
-
 void legalizeIRForMetal(IRModule* module, TargetProgram* targetProgram, DiagnosticSink* sink)
 {
     List<EntryPointInfo> entryPoints;
@@ -432,8 +424,6 @@ void legalizeIRForMetal(IRModule* module, TargetProgram* targetProgram, Diagnost
         }
     }
 
-    // Subpass inputs are legalized earlier in linkAndOptimizeIR, before the explicit global
-    // context pass hides direct entry-point uses.
     legalizeEntryPointVaryingParamsForMetal(module, sink, entryPoints);
 
     processInst(module->getModuleInst(), targetProgram, sink);
