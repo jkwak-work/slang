@@ -4,6 +4,12 @@ else()
     set(SLANG_GLSL_MODULE_DEPENDENCY)
 endif()
 
+if(TARGET copy_core_module_to_runtime_dir)
+    set(SLANG_CORE_MODULE_RUNTIME_ARCHIVE_DEPENDENCY REQUIRES copy_core_module_to_runtime_dir)
+else()
+    set(SLANG_CORE_MODULE_RUNTIME_ARCHIVE_DEPENDENCY)
+endif()
+
 if(SLANG_ENABLE_SLANGC)
     slang_add_target(
         .
@@ -15,6 +21,7 @@ if(SLANG_ENABLE_SLANGC)
             slang
             Threads::Threads
             ${SLANG_GLSL_MODULE_DEPENDENCY}
+            ${SLANG_CORE_MODULE_RUNTIME_ARCHIVE_DEPENDENCY}
         PRECOMPILE_HEADERS
             ${slang_SOURCE_DIR}/source/core/slang-basic.h
         INSTALL

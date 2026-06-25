@@ -362,6 +362,49 @@ set_target_properties(
         MACHO_CURRENT_VERSION ${SLANG_VERSION_NUMERIC}
 )
 
+if(NOT SLANG_EMBED_CORE_MODULE AND SLANG_LIB_TYPE STREQUAL "SHARED")
+    if(WIN32)
+        if(DEFINED CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+            set(core_module_runtime_dir "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+        else()
+            set(core_module_runtime_dir "${CMAKE_BINARY_DIR}/$<CONFIG>/${runtime_subdir}")
+        endif()
+        set(core_module_runtime_archive_install_dir ${runtime_subdir})
+    else()
+        if(DEFINED CMAKE_LIBRARY_OUTPUT_DIRECTORY)
+            set(core_module_runtime_dir "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+        else()
+            set(core_module_runtime_dir "${CMAKE_BINARY_DIR}/$<CONFIG>/${library_subdir}")
+        endif()
+        set(core_module_runtime_archive_install_dir ${library_subdir})
+    endif()
+    set(core_module_runtime_archive "${core_module_runtime_dir}/slang-core-module.bin")
+
+    add_custom_command(
+        OUTPUT ${core_module_runtime_archive}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${core_module_runtime_dir}
+        COMMAND ${CMAKE_COMMAND} -E copy ${core_module_archive} ${core_module_runtime_archive}
+        COMMAND ${CMAKE_COMMAND} -E touch ${core_module_runtime_archive}
+        DEPENDS
+            generate_core_module
+            slang
+            ${core_module_archive}
+            "$<TARGET_FILE:slang>"
+        COMMENT "Copying core module archive to runtime directory"
+        VERBATIM
+    )
+    add_custom_target(
+        copy_core_module_to_runtime_dir
+        ALL
+        DEPENDS ${core_module_runtime_archive}
+    )
+    set_target_properties(copy_core_module_to_runtime_dir PROPERTIES FOLDER generated)
+    install(
+        FILES ${core_module_runtime_archive}
+        DESTINATION ${core_module_runtime_archive_install_dir}
+    )
+endif()
+
 #
 # Windows proxy DLL for backward compatibility
 # Creates slang.dll that forwards all calls to slang-compiler.dll

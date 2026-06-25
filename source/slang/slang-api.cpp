@@ -15,6 +15,8 @@
 #include "slang-repro.h"
 #include "slang-tag-version.h"
 
+#include <sys/stat.h>
+
 // implementation of C interface
 
 SLANG_API SlangSession* spCreateSession(const char*)
@@ -28,9 +30,21 @@ SLANG_API SlangSession* spCreateSession(const char*)
     return globalSession.detach();
 }
 
+static uint64_t _getFileTimestamp(const Slang::String& fileName)
+{
+    struct stat result;
+    if (stat(fileName.getBuffer(), &result) == 0)
+    {
+        return (uint64_t)result.st_mtime;
+    }
+    return 0;
+}
+
 // Attempt to load a previously compiled builtin module from the same file system location as the
-// slang dll. Returns SLANG_OK when the cache is sucessfully loaded. Also returns the filename to
-// the builtin module cache and the timestamp of current slang dll.
+// slang dll. Build and install trees can place a raw module archive there, while the first-run
+// fallback cache stores an 8-byte timestamp prefix before that archive. Returns SLANG_OK when
+// either form is successfully loaded. Also returns the filename to the builtin module cache and the
+// timestamp of current slang dll.
 SlangResult tryLoadBuiltinModuleFromCache(
     slang::IGlobalSession* globalSession,
     slang::BuiltinModuleName builtinModuleName,
@@ -55,17 +69,28 @@ SlangResult tryLoadBuiltinModuleFromCache(
     Slang::ScopedAllocation cacheData;
     SLANG_RETURN_ON_FAIL(Slang::File::readAllBytes(cacheFileName, cacheData));
 
-    // The first 8 bytes stores the timestamp of the slang dll that created this core module cache.
-    if (cacheData.getSizeInBytes() < sizeof(uint64_t))
+    // The first 8 bytes stores the timestamp of the slang dll that created a first-run cache.
+    // If it matches, prefer that payload. If it does not match, the file may still be the raw
+    // build-time archive copied next to the shared library.
+    if (cacheData.getSizeInBytes() >= sizeof(uint64_t))
+    {
+        auto cacheTimestamp = *(uint64_t*)(cacheData.getData());
+        if (cacheTimestamp == currentLibTimestamp)
+        {
+            SlangResult loadResult = globalSession->loadBuiltinModule(
+                builtinModuleName,
+                (uint8_t*)cacheData.getData() + sizeof(uint64_t),
+                cacheData.getSizeInBytes() - sizeof(uint64_t));
+            if (SLANG_SUCCEEDED(loadResult))
+                return loadResult;
+        }
+    }
+    if (_getFileTimestamp(cacheFileName) < currentLibTimestamp)
         return SLANG_FAIL;
-    auto cacheTimestamp = *(uint64_t*)(cacheData.getData());
-    if (cacheTimestamp != currentLibTimestamp)
-        return SLANG_FAIL;
-    SLANG_RETURN_ON_FAIL(globalSession->loadBuiltinModule(
+    return globalSession->loadBuiltinModule(
         builtinModuleName,
-        (uint8_t*)cacheData.getData() + sizeof(uint64_t),
-        cacheData.getSizeInBytes() - sizeof(uint64_t)));
-    return SLANG_OK;
+        (uint8_t*)cacheData.getData(),
+        cacheData.getSizeInBytes());
 }
 
 // Attempt to load a precompiled builtin module from slang-xxx-module.
