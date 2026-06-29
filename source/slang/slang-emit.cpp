@@ -1811,6 +1811,7 @@ Result linkAndOptimizeIR(
         break;
     case CodeGenTarget::Metal:
     case CodeGenTarget::MetalLib:
+    case CodeGenTarget::MetalLibAssembly:
         // Metal does not allow `ConstantBuffer<StructuredBuffer<T>>`, so we need to create
         // a wrapper struct for the `StructuredBuffer<T>`.
         SLANG_PASS(wrapCBufferElementsForMetal);
@@ -2034,9 +2035,12 @@ Result linkAndOptimizeIR(
     case CodeGenTarget::MetalLib:
     case CodeGenTarget::MetalLibAssembly:
         {
-            SLANG_PASS(legalizeIRForMetal, targetProgram, sink);
+            // Subpass input globals must be rewritten while their entry-point uses are still
+            // visible, before introduceExplicitGlobalContext wraps globals in a context object.
+            SLANG_PASS(legalizeSubpassInputsForMetal, sink);
         }
         break;
+
     case CodeGenTarget::CSource:
     case CodeGenTarget::CPPSource:
     case CodeGenTarget::CPPHeader:
@@ -2134,6 +2138,8 @@ Result linkAndOptimizeIR(
         SLANG_PASS(transformParamsToConstRef, codeGenContext->getSink());
         break;
     case CodeGenTarget::Metal:
+    case CodeGenTarget::MetalLib:
+    case CodeGenTarget::MetalLibAssembly:
     case CodeGenTarget::CPPSource:
     case CodeGenTarget::CPPHeader:
     case CodeGenTarget::CUDASource:
@@ -2160,6 +2166,13 @@ Result linkAndOptimizeIR(
         }
         validateIRModuleIfEnabled(codeGenContext, irModule);
         break;
+    }
+
+    if (isMetalTarget(targetRequest))
+    {
+        // Run Metal legalization after introduceExplicitGlobalContext so legalization
+        // sees the final entry-point/global-context shape.
+        SLANG_PASS(legalizeIRForMetal, targetProgram, sink);
     }
 
     // TODO: our current dynamic dispatch pass will remove all uses of witness tables.
