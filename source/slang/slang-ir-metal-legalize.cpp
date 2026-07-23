@@ -258,11 +258,23 @@ static void processInst(IRInst* inst, TargetProgram* targetProgram, DiagnosticSi
     }
 }
 
-static void legalizeSubpassInputsForMetal(
-    IRModule* module,
-    DiagnosticSink* sink,
-    List<EntryPointInfo>& entryPoints)
+void legalizeSubpassInputsForMetal(IRModule* module, DiagnosticSink* sink)
 {
+    List<EntryPointInfo> entryPoints;
+    for (auto inst : module->getGlobalInsts())
+    {
+        if (auto func = as<IRFunc>(inst))
+        {
+            if (auto entryPointDecor = func->findDecoration<IREntryPointDecoration>())
+            {
+                EntryPointInfo info;
+                info.entryPointDecor = entryPointDecor;
+                info.entryPointFunc = func;
+                entryPoints.add(info);
+            }
+        }
+    }
+
     List<IRGlobalParam*> subpassGlobals;
     for (auto inst : module->getGlobalInsts())
     {
@@ -422,8 +434,6 @@ void legalizeIRForMetal(IRModule* module, TargetProgram* targetProgram, Diagnost
             legalizeFuncBody(func);
         }
     }
-
-    legalizeSubpassInputsForMetal(module, sink, entryPoints);
 
     legalizeEntryPointVaryingParamsForMetal(module, sink, entryPoints);
 
