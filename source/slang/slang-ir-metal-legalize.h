@@ -7,6 +7,7 @@ namespace Slang
 class DiagnosticSink;
 class TargetProgram;
 
+void legalizeSubpassInputsForMetal(IRModule* module, DiagnosticSink* sink);
 void legalizeIRForMetal(IRModule* module, TargetProgram* targetProgram, DiagnosticSink* sink);
 void specializeAddressSpaceForMetal(IRModule* module);
 
