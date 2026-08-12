@@ -1,8 +1,16 @@
+.gitattributes text eol=lf
+
 # indicate generated files so they don't appear in GitHub diffs
 *.slang.cpp linguist-generated
 
 # Set the line endings to LF for shell scripts
 *.sh text eol=lf
+
+# Keep Python scripts readable from WSL/Unix tools
+*.py text eol=lf
+
+# Keep the watcher documentation readable from WSL/Unix tools
+extras/watch-github.md text eol=lf
 
 # Enable git archive substitution for tagged version file
 cmake/slang_git_version export-subst
