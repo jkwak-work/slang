@@ -27,6 +27,22 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
   cancel-in-progress: true
 
+env:
+  # TEMPORARY CROSS-REPO CHERRY-PICK. Set back to '' as soon as the named SlangPy PR
+  # merges.
+  #
+  # A Slang change that breaks SlangPy is a chicken-and-egg problem: until the matching
+  # SlangPy PR lands, every Slang PR fails SlangPy CI. Naming that PR here asks SlangPy
+  # CI to merge it in before building, so both halves are tested together. SlangPy CI
+  # owns the checkout (see ci-latest-slang.yml in shader-slang/slangpy).
+  #
+  # This applies to every Slang PR, so keep the window short: land the SlangPy PR right
+  # after the Slang one, then clear this.
+  #
+  # Currently cherry-picking: shader-slang/slangpy#1135, for #12840 (retypes the layout
+  # parameter of `matrix` from `int` to the `MatrixLayoutMode` enum).
+  SLANGPY_CHERRY_PICK_PR: "1135"
+
 jobs:
   filter:
     runs-on: ubuntu-latest
@@ -159,6 +175,7 @@ jobs:
                 slang_checkout_repo: `${{ steps.pr_mq.outputs.checkout_repo }}` || '${{ github.repository }}',
                 is_fork_pr: `${{ steps.pr_auto.outputs.is_fork_pr || steps.pr_manual.outputs.is_fork_pr || steps.pr_mq.outputs.is_fork_pr }}`,
                 slang_pr_head_repo: `${{ steps.pr_auto.outputs.head_repo || steps.pr_manual.outputs.head_repo || steps.pr_mq.outputs.head_repo }}`,
+                slangpy_cherry_pick_pr: process.env.SLANGPY_CHERRY_PICK_PR || '',
                 slang_trigger_source: '${{ github.event_name }}',
                 slang_pr_title: process.env.PR_TITLE || '',
                 slang_pr_author: `${{ steps.pr_auto.outputs.author || steps.pr_manual.outputs.author || steps.pr_mq.outputs.author }}`
